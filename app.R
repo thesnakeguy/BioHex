@@ -419,43 +419,94 @@ run_vif <- function(env_rast, thr=10) {
 }
 
 prepare_jsdm <- function(occ_df, env_rast) {
-  # Build a integer cell-ID raster (same extent/res as env_rast)
-  grid   <- env_rast[[1]]
-  grid[] <- seq_len(ncell(grid))
-  names(grid) <- "cell_id"
 
+  # ── 1. Env data frame (non-NA cells only) ───────────────────
+  edf      <- as.data.frame(env_rast, xy=TRUE, na.rm=TRUE)
   env_vars <- names(env_rast)
 
-  # Env data frame with xy coords — na.rm removes ocean/masked cells
-  edf <- as.data.frame(env_rast, xy=TRUE, na.rm=TRUE)
+  # Sanitise column names: jSDM formula parsing breaks on special
+  # characters (dots, hyphens, spaces). Replace with underscores.
+  safe_names <- make.names(env_vars, unique=TRUE)
+  names(edf)[match(env_vars, names(edf))] <- safe_names
+  env_vars <- safe_names   # use safe names from here on
 
-  # Extract cell IDs for each env row using cellFromXY (no SpatVector needed)
+  # Drop any remaining all-NA columns (can happen if a layer
+  # had no overlap with the study extent after resample)
+  ok_cols  <- safe_names[sapply(safe_names, function(v) !all(is.na(edf[[v]])))]
+  if (!length(ok_cols)) stop("All environmental columns are NA after masking.")
+  edf      <- edf[, c("x", "y", ok_cols), drop=FALSE]
+  env_vars <- ok_cols
+
+  # ── 2. Cell IDs via cellFromXY ───────────────────────────────
   edf$cell_id <- cellFromXY(env_rast, as.matrix(edf[, c("x","y")]))
 
-  spp <- unique(occ_df$species)
+  # ── 3. Presence-absence matrix ───────────────────────────────
+  spp <- sort(unique(occ_df$species[!is.na(occ_df$species) & occ_df$species != ""]))
   pa  <- matrix(0L, nrow=nrow(edf), ncol=length(spp), dimnames=list(NULL, spp))
 
   for (sp in spp) {
-    pts <- occ_df[occ_df$species == sp, c("decimalLongitude","decimalLatitude"), drop=FALSE]
-    pts <- pts[!is.na(pts[[1]]) & !is.na(pts[[2]]), , drop=FALSE]
+    pts <- occ_df[occ_df$species == sp,
+                  c("decimalLongitude","decimalLatitude"), drop=FALSE]
+    pts <- pts[complete.cases(pts), , drop=FALSE]
     if (!nrow(pts)) next
-    # Get raster cell index for each occurrence point
     occ_cells <- cellFromXY(env_rast, as.matrix(pts))
-    occ_cells <- occ_cells[!is.na(occ_cells)]
+    occ_cells <- unique(occ_cells[!is.na(occ_cells)])
     if (!length(occ_cells)) next
-    pa[edf$cell_id %in% occ_cells, sp] <- 1L
+    hit_rows  <- which(edf$cell_id %in% occ_cells)
+    if (length(hit_rows)) pa[hit_rows, sp] <- 1L
   }
 
-  list(pa=pa, env=as.matrix(edf[, env_vars, drop=FALSE]),
-       coords=edf[, c("x","y")], env_vars=env_vars, species=spp, cell_id=edf$cell_id)
+  # Drop species with zero presences (can't be modelled)
+  n_pres  <- colSums(pa)
+  keep_sp <- names(n_pres[n_pres > 0])
+  if (!length(keep_sp)) stop("No species have any presences in the raster grid cells.")
+  dropped_sp <- setdiff(spp, keep_sp)
+  if (length(dropped_sp))
+    message("Dropping ", length(dropped_sp),
+            " species with 0 presences in env grid: ",
+            paste(head(dropped_sp, 5), collapse=", "),
+            if (length(dropped_sp)>5) "..." else "")
+  pa  <- pa[, keep_sp, drop=FALSE]
+  spp <- keep_sp
+
+  list(pa      = pa,
+       env     = as.matrix(edf[, env_vars, drop=FALSE]),
+       coords  = edf[, c("x","y")],
+       env_vars= env_vars,
+       species = spp,
+       cell_id = edf$cell_id)
 }
 
 run_jsdm_model <- function(jd, n_iter, n_burnin, n_thin, n_latent) {
-  es <- scale(jd$env)
+  # Scale env matrix and strip ALL attributes that confuse jSDM
+  env_sc  <- scale(jd$env)
+  env_df  <- as.data.frame(env_sc)
+  # make.names again in case scale() altered anything
+  names(env_df) <- make.names(names(env_df), unique=TRUE)
+
+  # Verify PA matrix is integer with no NA
+  pa <- jd$pa
+  storage.mode(pa) <- "integer"
+  if (any(is.na(pa))) pa[is.na(pa)] <- 0L
+
+  # Remove any sites that are all-NA in env (safety net)
+  ok_sites <- complete.cases(env_df)
+  if (!all(ok_sites)) {
+    message("Removing ", sum(!ok_sites), " sites with NA env values before jSDM.")
+    env_df <- env_df[ok_sites, , drop=FALSE]
+    pa     <- pa[ok_sites,   , drop=FALSE]
+  }
+
   jSDM::jSDM_binomial_probit(
-    presence_data=jd$pa, site_formula=~., site_data=as.data.frame(es),
-    burnin=n_burnin, mcmc=n_iter, thin=n_thin,
-    n_latent=n_latent, site_effect="random", verbose=0)
+    presence_data = pa,
+    site_formula  = ~ .,
+    site_data     = env_df,
+    burnin        = n_burnin,
+    mcmc          = n_iter,
+    thin          = n_thin,
+    n_latent      = n_latent,
+    site_effect   = "random",
+    verbose       = 0)
 }
 
 gg_dark <- function(bs=11) {
