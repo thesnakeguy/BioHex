@@ -81,8 +81,8 @@ PALETTE_CH <- c("Viridis"="viridis","Magma"="magma","Inferno"="inferno",
                 "Plasma"="plasma","Cividis"="cividis","Mako"="mako",
                 "Rocket"="rocket","Turbo"="turbo")
 ESTIMATOR_CH <- c("Species Richness"="richness","Shannon"="shannon_diversity",
-                   "Simpson"="simpson_diversity","ES (Hurlbert)"="ES","MaxP"="maxp",
-                   "Hill 1"="hill_1","Hill 2"="hill_2","Hill inf"="hill_inf")
+                  "Simpson"="simpson_diversity","ES (Hurlbert)"="ES","MaxP"="maxp",
+                  "Hill 1"="hill_1","Hill 2"="hill_2","Hill inf"="hill_inf")
 LEG <- list(richness="Species richness",shannon_diversity="Shannon H",
             simpson_diversity="Simpson D",ES="ES (Hurlbert)",maxp="MaxP",
             hill_1="Hill 1",hill_2="Hill 2",hill_inf="Hill inf")
@@ -94,8 +94,8 @@ TILE_CH <- c("CartoDB Dark"="CartoDB.DarkMatter","CartoDB Light"="CartoDB.Positr
 APP_CSS <- paste0("
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
 :root{--d:",D,";--card:",CARD,";--panel:",PANEL,";--brd:",BRD,
-      ";--acc:",ACC,";--vio:",VIO,";--grn:",GRN,";--amb:",AMB,
-      ";--red:",RED,";--txt:",TXT,";--mut:",MUT,";}
+                  ";--acc:",ACC,";--vio:",VIO,";--grn:",GRN,";--amb:",AMB,
+                  ";--red:",RED,";--txt:",TXT,";--mut:",MUT,";}
 *,*::before,*::after{box-sizing:border-box;}
 body,.bslib-page-navbar{background:var(--d)!important;color:var(--txt)!important;
   font-family:'JetBrains Mono',monospace!important;font-size:13px;}
@@ -219,17 +219,17 @@ table.dataTable tbody td{border-top:1px solid var(--brd)!important;}
 resolve_taxa <- function(q) {
   raw <- trimws(strsplit(q, "[,\n]+")[[1]])
   raw <- raw[nchar(raw) > 0]
-
+  
   HIGHER_RANKS <- c("kingdom","phylum","class","order","suborder",
                     "superfamily","family","subfamily","tribe","genus")
   keys   <- integer(0)
   labels <- character(0)
-
+  
   for (x in raw) {
     key  <- NA_integer_
     rank <- NA_character_
     lbl  <- x
-
+    
     # name_backbone
     safe_backbone <- function(x, tries = 5) {
       for(i in seq_len(tries)) {
@@ -248,7 +248,7 @@ resolve_taxa <- function(q) {
       lbl  <- bb$canonicalName %||% x
       message(sprintf("  backbone: '%s' -> rank=%s key=%s", x, rank, key))
     }
-
+    
     if (is.na(key)) {
       message(sprintf("  WARNING: could not resolve '%s' — skipping.", x))
       next
@@ -256,7 +256,7 @@ resolve_taxa <- function(q) {
     keys   <- c(keys,   key)
     labels <- c(labels, sprintf("%s [%s]", lbl, rank))
   }
-
+  
   list(keys=unique(keys), labels=labels[!duplicated(keys)])
 }
 
@@ -267,7 +267,7 @@ resolve_taxa <- function(q) {
 download_gbif <- function(taxa_resolved, wkt, yr_min, yr_max, max_unc) {
   keys <- taxa_resolved$keys
   if (!length(keys)) return(NULL)
-
+  
   message(sprintf("  occ_download: %d key(s): %s",
                   length(keys), paste(keys, collapse=", ")))
   tryCatch({
@@ -297,8 +297,8 @@ clean_occ <- function(df) {
     distinct(decimalLongitude, decimalLatitude, .keep_all=TRUE)
   flags <- tryCatch(
     CoordinateCleaner::clean_coordinates(x=df2, lon="decimalLongitude",
-      lat="decimalLatitude", species="species",
-      tests=c("capitals","centroids","duplicates","equal","gbif","institutions","zeros")),
+                                         lat="decimalLatitude", species="species",
+                                         tests=c("capitals","centroids","duplicates","equal","gbif","institutions","zeros")),
     error=function(e){df2$.summary<-TRUE; df2})
   df2[flags$.summary,,drop=FALSE]
 }
@@ -322,19 +322,19 @@ build_h3_polys <- function(cd) {
 .fetch_layer <- function(name, ext_obj, wdir) {
   tryCatch({
     rast_raw <- switch(name,
-      bio      = worldclim_global(var="bio", res=5, path=wdir),
-      elev     = elevation_global(res=5, path=wdir),
-      built    = landcover(var="built",     path=wdir),
-      grassland= landcover(var="grassland", path=wdir),
-      trees    = landcover(var="trees",     path=wdir),
-      footprint= footprint(year=2009,       path=wdir),
-      ndvi     = {
-        # geodata::landcover "bare" is the closest proxy; real NDVI needs MOD13 tiles
-        # Use landcover snow as a placeholder — swap for your preferred NDVI source
-        message("NDVI: using EVI proxy from geodata::landcover('bare') as stand-in.")
-        landcover(var="bare", path=wdir)
-      },
-      NULL
+                       bio      = worldclim_global(var="bio", res=5, path=wdir),
+                       elev     = elevation_global(res=5, path=wdir),
+                       built    = landcover(var="built",     path=wdir),
+                       grassland= landcover(var="grassland", path=wdir),
+                       trees    = landcover(var="trees",     path=wdir),
+                       footprint= footprint(year=2009,       path=wdir),
+                       ndvi     = {
+                         # geodata::landcover "bare" is the closest proxy; real NDVI needs MOD13 tiles
+                         # Use landcover snow as a placeholder — swap for your preferred NDVI source
+                         message("NDVI: using EVI proxy from geodata::landcover('bare') as stand-in.")
+                         landcover(var="bare", path=wdir)
+                       },
+                       NULL
     )
     if (is.null(rast_raw)) return(NULL)
     crop(rast_raw, ext_obj)
@@ -343,7 +343,7 @@ build_h3_polys <- function(cd) {
 
 get_env_stack <- function(ext_obj, extra=character(0), wdir=ENV_CACHE_DIR) {
   stack_list <- list()
-
+  
   # Download (or load from cache), crop and resample one layer group
   load_layer <- function(key, dl_fn, method="bilinear", cache_file=layer_cache_files[[key]]) {
     if (file.exists(cache_file)) {
@@ -360,14 +360,14 @@ get_env_stack <- function(ext_obj, extra=character(0), wdir=ENV_CACHE_DIR) {
     }
     r
   }
-
+  
   # Reference grid: bioclim (always first)
   bio_raw <- load_layer("bio", function() worldclim_global(var="bio", res=5, path=wdir))
   if (is.null(bio_raw)) stop("Failed to obtain bioclim reference layer.")
   ref_full <- bio_raw          # keep full global for cache
   ref      <- crop(bio_raw, ext_obj)
   stack_list[["bio"]] <- ref
-
+  
   add_layer <- function(key, dl_fn, method="bilinear") {
     r_raw <- load_layer(key, dl_fn)
     if (is.null(r_raw)) return()
@@ -376,7 +376,7 @@ get_env_stack <- function(ext_obj, extra=character(0), wdir=ENV_CACHE_DIR) {
     r_res  <- tryCatch(resample(r_crop, ref[[1]], method=method), error=function(e) NULL)
     if (!is.null(r_res)) stack_list[[key]] <<- r_res
   }
-
+  
   add_layer("elev",      function() elevation_global(res=5, path=wdir), "bilinear")
   add_layer("built",     function() landcover(var="built",     path=wdir), "near")
   add_layer("grassland", function() landcover(var="grassland", path=wdir), "near")
@@ -384,14 +384,14 @@ get_env_stack <- function(ext_obj, extra=character(0), wdir=ENV_CACHE_DIR) {
   add_layer("footprint", function() footprint(year=2009,       path=wdir), "near")
   add_layer("water",     function() landcover(var="water",     path=wdir), "near")
   add_layer("wetland",   function() landcover(var="wetland",   path=wdir), "near")
-
+  
   if ("ndvi" %in% extra) {
     add_layer("ndvi", function() landcover(var="bare", path=wdir), "near")
   }
   if ("corine" %in% extra) {
     message("CORINE: must be uploaded by user (not auto-downloadable).")
   }
-
+  
   if (!length(stack_list)) stop("No layers could be loaded.")
   terra::rast(stack_list)
 }
@@ -412,9 +412,9 @@ run_vif <- function(env_rast, thr=10) {
 # (converted to degrees at the study centroid) and aggregates both
 # env values (mean) and occurrences (presence/absence) into it.
 prepare_jsdm <- function(occ_df, env_rast, site_size_m=NULL) {
-
+  
   use_custom_grid <- !is.null(site_size_m) && site_size_m > 0
-
+  
   if (use_custom_grid) {
     # Convert metres to approximate degrees (WGS84)
     # 1 degree latitude ≈ 111 000 m everywhere
@@ -423,16 +423,16 @@ prepare_jsdm <- function(occ_df, env_rast, site_size_m=NULL) {
     lat_ctr <- (ext_r$ymin + ext_r$ymax) / 2
     deg_lat <- site_size_m / 111000
     deg_lon <- site_size_m / (111000 * cos(lat_ctr * pi / 180))
-
+    
     message(sprintf("Custom site grid: %.0f m → %.4f° lat × %.4f° lon",
                     site_size_m, deg_lat, deg_lon))
-
+    
     # Build a SpatRaster at the custom resolution covering env extent
     site_rast <- rast(ext=ext_r, resolution=c(deg_lon, deg_lat),
                       crs=crs(env_rast))
     site_rast[] <- seq_len(ncell(site_rast))
     names(site_rast) <- "site_id"
-
+    
     # Aggregate env layers to the coarser grid (mean per site cell)
     env_agg <- resample(env_rast, site_rast, method="average")
     grid_rast <- site_rast
@@ -442,27 +442,27 @@ prepare_jsdm <- function(occ_df, env_rast, site_size_m=NULL) {
     grid_rast[] <- seq_len(ncell(grid_rast))
     names(grid_rast) <- "site_id"
   }
-
+  
   # ── 1. Env data frame (non-NA cells only) ───────────────────
   edf      <- as.data.frame(env_agg, xy=TRUE, na.rm=TRUE)
   env_vars <- names(env_agg)
-
+  
   safe_names <- make.names(env_vars, unique=TRUE)
   names(edf)[match(env_vars, names(edf))] <- safe_names
   env_vars <- safe_names
-
+  
   ok_cols  <- safe_names[sapply(safe_names, function(v) !all(is.na(edf[[v]])))]
   if (!length(ok_cols)) stop("All environmental columns are NA after masking.")
   edf      <- edf[, c("x", "y", ok_cols), drop=FALSE]
   env_vars <- ok_cols
-
+  
   # ── 2. Site IDs for each env row ────────────────────────────
   edf$cell_id <- cellFromXY(env_agg, as.matrix(edf[, c("x","y")]))
-
+  
   # ── 3. Presence-absence matrix ───────────────────────────────
   spp <- sort(unique(occ_df$species[!is.na(occ_df$species) & occ_df$species != ""]))
   pa  <- matrix(0L, nrow=nrow(edf), ncol=length(spp), dimnames=list(NULL, spp))
-
+  
   for (sp in spp) {
     pts <- occ_df[occ_df$species == sp,
                   c("decimalLongitude","decimalLatitude"), drop=FALSE]
@@ -475,7 +475,7 @@ prepare_jsdm <- function(occ_df, env_rast, site_size_m=NULL) {
     hit_rows  <- which(edf$cell_id %in% occ_cells)
     if (length(hit_rows)) pa[hit_rows, sp] <- 1L
   }
-
+  
   # Drop species with zero presences
   n_pres  <- colSums(pa)
   keep_sp <- names(n_pres[n_pres > 0])
@@ -487,14 +487,14 @@ prepare_jsdm <- function(occ_df, env_rast, site_size_m=NULL) {
             if (length(dropped_sp)>5) "..." else "")
   pa  <- pa[, keep_sp, drop=FALSE]
   spp <- keep_sp
-
+  
   n_sites   <- nrow(edf)
   site_desc <- if (use_custom_grid)
     sprintf("%.0f m custom grid (%d sites)", site_size_m, n_sites)
   else
     sprintf("native env resolution (%d sites)", n_sites)
   message("Site grid: ", site_desc)
-
+  
   list(pa        = pa,
        env       = as.matrix(edf[, env_vars, drop=FALSE]),
        coords    = edf[, c("x","y")],
@@ -510,12 +510,12 @@ run_jsdm_model <- function(jd, n_iter, n_burnin, n_thin, n_latent) {
   env_df  <- as.data.frame(env_sc)
   # make.names again in case scale() altered anything
   names(env_df) <- make.names(names(env_df), unique=TRUE)
-
+  
   # Verify PA matrix is integer with no NA
   pa <- jd$pa
   storage.mode(pa) <- "integer"
   if (any(is.na(pa))) pa[is.na(pa)] <- 0L
-
+  
   # Remove any sites that are all-NA in env (safety net)
   ok_sites <- complete.cases(env_df)
   if (!all(ok_sites)) {
@@ -523,7 +523,7 @@ run_jsdm_model <- function(jd, n_iter, n_burnin, n_thin, n_latent) {
     env_df <- env_df[ok_sites, , drop=FALSE]
     pa     <- pa[ok_sites,   , drop=FALSE]
   }
-
+  
   jSDM::jSDM_binomial_probit(
     presence_data = pa,
     site_formula  = ~ .,
@@ -556,10 +556,10 @@ sdiv <- function(lbl) div(class="sdiv", tags$span(lbl))
 
 badge_status <- function(st) {
   switch(st,
-    idle    = tags$span(class="badge badge-muted", "No data"),
-    running = tags$span(class="badge badge-amber", "\u29d7 Running\u2026"),
-    done    = tags$span(class="badge badge-green", "\u2713 Done"),
-    error   = tags$span(class="badge badge-red",   "\u2715 Error"))
+         idle    = tags$span(class="badge badge-muted", "No data"),
+         running = tags$span(class="badge badge-amber", "\u29d7 Running\u2026"),
+         done    = tags$span(class="badge badge-green", "\u2713 Done"),
+         error   = tags$span(class="badge badge-red",   "\u2715 Error"))
 }
 
 # ══════════════════════════════════════════════════════════════
@@ -583,316 +583,316 @@ ui <- page_navbar(
       });
     "))
   ),
-
+  
   # ── TAB 1: Data ───────────────────────────────────────────
   nav_panel("01 \u00b7 Data", icon=bs_icon("cloud-download"),
-    tags$style(HTML("
+            tags$style(HTML("
       .scroll-legend {
         max-height: 250px;
         overflow-y: auto;
       }
     ")),
-    layout_sidebar(fillable=TRUE,
-      sidebar=sidebar(width=310, bg=PANEL,
-
-        sdiv("Taxon query"),
-        textAreaInput("taxon_query", "Species / higher taxon",
-          value="Testudines\nCaudata\nSquamata", rows=5,
-          placeholder="One per line or comma-separated\nHigher taxa auto-expand to species"),
-
-        sdiv("Geographic scope"),
-        radioButtons("geo_mode", NULL,
-          choices=c("Countries"="country","Custom WKT"="wkt"), selected="country", inline=TRUE),
-        conditionalPanel("input.geo_mode=='country'",
-          selectizeInput("countries", NULL, multiple=TRUE, selected="Italy",
-            choices=sort(tryCatch(ne_countries(scale="medium",returnclass="sf")$name, error=function(e) "Italy")),
-            options=list(placeholder="Select countries\u2026"))),
-        conditionalPanel("input.geo_mode=='wkt'",
-          textAreaInput("wkt_input", NULL, rows=3, placeholder="POLYGON((\u2026))")),
-
-        sdiv("Filters"),
-        fluidRow(
-          column(6, numericInput("yr_min","Year from",2000,1800,2026)),
-          column(6, numericInput("yr_max","Year to",  2024,1800,2026))),
-        numericInput("max_unc","Max coord. uncertainty (m)",1500,100,50000,100),
-        checkboxInput("run_cc","Run CoordinateCleaner",TRUE),
-
-        sdiv("GBIF credentials"),
-        tags$small(style=paste0("color:",MUT), "Or set GBIF_USER/PWD/EMAIL in .Renviron"),
-        br(),
-        textInput("gbif_user","User",   Sys.getenv("GBIF_USER")),
-        passwordInput("gbif_pwd","Password",Sys.getenv("GBIF_PWD")),
-        textInput("gbif_email","Email", Sys.getenv("GBIF_EMAIL")),
-        br(),
-        actionButton("btn_fetch","Fetch from GBIF",class="btn-cyan w-100",icon=icon("download")),
-
-        sdiv("Or upload CSV"),
-        fileInput("csv_upload","Upload CSV file",accept=".csv",
-                  buttonLabel="Browse\u2026", placeholder="No file selected"),
-        textInput("csv_sp",  "Species column name",    "species"),
-        textInput("csv_lon", "Longitude column name", "decimalLongitude"),
-        textInput("csv_lat", "Latitude column name",  "decimalLatitude"),
-        actionButton("btn_load_csv","Load CSV",class="btn-ghost w-100",icon=icon("file-csv"))
-      ),
-
-      layout_columns(col_widths=c(4,4,4),
-        uiOutput("kpi_records"), uiOutput("kpi_species"), uiOutput("kpi_status")),
-      card(card_header(bs_icon("terminal")," Activity log"),
-           div(id="data_log", class="log-box", "Waiting\u2026")),
-      card(full_screen=TRUE,
-           card_header(
-             class="d-flex justify-content-between align-items-center",
-             span(bs_icon("map")," Occurrence preview"),
-             div(style="display:flex;align-items:center;gap:8px;",
-               radioButtons("occ_color_by","",
-                 choices=c("Species"="species","Genus"="genus"),
-                 selected="species",inline=TRUE),
-               downloadButton("dl_occ_map","",class="btn-ghost btn-sm",
-                 icon=icon("download"),title="Download map as PNG"))
-           ),
-           withSpinner(leafletOutput("occ_map",height="350px"),color=ACC,type=6),
-           tags$style(HTML(".leaflet-control-layers,.leaflet .legend{max-height:220px;overflow-y:auto;}"))
-      )
-    )
+            layout_sidebar(fillable=TRUE,
+                           sidebar=sidebar(width=310, bg=PANEL,
+                                           
+                                           sdiv("Taxon query"),
+                                           textAreaInput("taxon_query", "Species / higher taxon",
+                                                         value="Testudines\nCaudata\nSquamata", rows=5,
+                                                         placeholder="One per line or comma-separated\nHigher taxa auto-expand to species"),
+                                           
+                                           sdiv("Geographic scope"),
+                                           radioButtons("geo_mode", NULL,
+                                                        choices=c("Countries"="country","Custom WKT"="wkt"), selected="country", inline=TRUE),
+                                           conditionalPanel("input.geo_mode=='country'",
+                                                            selectizeInput("countries", NULL, multiple=TRUE, selected="Italy",
+                                                                           choices=sort(tryCatch(ne_countries(scale="medium",returnclass="sf")$name, error=function(e) "Italy")),
+                                                                           options=list(placeholder="Select countries\u2026"))),
+                                           conditionalPanel("input.geo_mode=='wkt'",
+                                                            textAreaInput("wkt_input", NULL, rows=3, placeholder="POLYGON((\u2026))")),
+                                           
+                                           sdiv("Filters"),
+                                           fluidRow(
+                                             column(6, numericInput("yr_min","Year from",2000,1800,2026)),
+                                             column(6, numericInput("yr_max","Year to",  2024,1800,2026))),
+                                           numericInput("max_unc","Max coord. uncertainty (m)",1500,100,50000,100),
+                                           checkboxInput("run_cc","Run CoordinateCleaner",TRUE),
+                                           
+                                           sdiv("GBIF credentials"),
+                                           tags$small(style=paste0("color:",MUT), "Or set GBIF_USER/PWD/EMAIL in .Renviron"),
+                                           br(),
+                                           textInput("gbif_user","User",   Sys.getenv("GBIF_USER")),
+                                           passwordInput("gbif_pwd","Password",Sys.getenv("GBIF_PWD")),
+                                           textInput("gbif_email","Email", Sys.getenv("GBIF_EMAIL")),
+                                           br(),
+                                           actionButton("btn_fetch","Fetch from GBIF",class="btn-cyan w-100",icon=icon("download")),
+                                           
+                                           sdiv("Or upload CSV"),
+                                           fileInput("csv_upload","Upload CSV file",accept=".csv",
+                                                     buttonLabel="Browse\u2026", placeholder="No file selected"),
+                                           textInput("csv_sp",  "Species column name",    "species"),
+                                           textInput("csv_lon", "Longitude column name", "decimalLongitude"),
+                                           textInput("csv_lat", "Latitude column name",  "decimalLatitude"),
+                                           actionButton("btn_load_csv","Load CSV",class="btn-ghost w-100",icon=icon("file-csv"))
+                           ),
+                           
+                           layout_columns(col_widths=c(4,4,4),
+                                          uiOutput("kpi_records"), uiOutput("kpi_species"), uiOutput("kpi_status")),
+                           card(card_header(bs_icon("terminal")," Activity log"),
+                                div(id="data_log", class="log-box", "Waiting\u2026")),
+                           card(full_screen=TRUE,
+                                card_header(
+                                  class="d-flex justify-content-between align-items-center",
+                                  span(bs_icon("map")," Occurrence preview"),
+                                  div(style="display:flex;align-items:center;gap:8px;",
+                                      radioButtons("occ_color_by","",
+                                                   choices=c("Species"="species","Genus"="genus"),
+                                                   selected="species",inline=TRUE),
+                                      downloadButton("dl_occ_map","",class="btn-ghost btn-sm",
+                                                     icon=icon("download"),title="Download map as PNG"))
+                                ),
+                                withSpinner(leafletOutput("occ_map",height="350px"),color=ACC,type=6),
+                                tags$style(HTML(".leaflet-control-layers,.leaflet .legend{max-height:220px;overflow-y:auto;}"))
+                           )
+            )
   ),
-
+  
   # ── TAB 2: Diversity ──────────────────────────────────────
   nav_panel("02 \u00b7 Diversity", icon=bs_icon("hexagon"),
-    layout_sidebar(fillable=TRUE,
-      sidebar=sidebar(width=285, bg=PANEL,
-        sdiv("H3 settings"),
-        sliderInput("hex_res","Resolution",1,9,5,1,ticks=FALSE),
-        tags$small(style=paste0("color:",MUT),"1=large hexagons \u00b7 9=fine hexagons"),
-        br(), br(),
-        numericInput("esn","ES estimator n",50,1),
-        sdiv("Metric"),
-        selectInput("estimator",NULL,choices=ESTIMATOR_CH),
-        sdiv("Style"),
-        selectInput("tile","Base map",choices=TILE_CH),
-        selectInput("palette","Palette",choices=PALETTE_CH),
-        sliderInput("fill_opacity","Opacity",0.1,1,0.75,0.05,ticks=FALSE),
-        checkboxInput("show_borders","Hex borders",TRUE),
-        checkboxInput("show_effort","Show effort in popup",TRUE),
-        br(),
-        actionButton("btn_build_hex","Build hex map",class="btn-green w-100",icon=icon("play")),
-        br(),br(),
-        uiOutput("hex_status_ui")
-      ),
-      layout_columns(col_widths=c(8,4),
-        card(full_screen=TRUE,
-             card_header(class="d-flex justify-content-between align-items-center",
-               span(bs_icon("hexagon")," H3 diversity map"),
-               div(style="display:flex;align-items:center;gap:8px;",
-                 uiOutput("hex_metric_badge"),
-                 downloadButton("dl_hex_map","",class="btn-ghost btn-sm",
-                   icon=icon("download"),title="Download map as PNG"))),
-             withSpinner(leafletOutput("hex_map",height="510px"),color=ACC,type=6)),
-        card(
-          card_header(bs_icon("list-ul")," Species in selected hexagon"),
-          div(style=paste0("color:",MUT,";font-size:.78rem;padding:.4rem .6rem;"),
-              "Click any hexagon on the map to see which species occur in it."),
-          uiOutput("hex_species_panel")
-        )
-      ),
-      layout_columns(col_widths=c(6,6),
-        card(card_header("Richness distribution"),
-             withSpinner(plotOutput("plot_hist",height="195px"),color=ACC,type=6)),
-        card(card_header("Top 10 hexagons"),
-             withSpinner(plotOutput("plot_top10",height="195px"),color=ACC,type=6)))
-    )
+            layout_sidebar(fillable=TRUE,
+                           sidebar=sidebar(width=285, bg=PANEL,
+                                           sdiv("H3 settings"),
+                                           sliderInput("hex_res","Resolution",1,9,5,1,ticks=FALSE),
+                                           tags$small(style=paste0("color:",MUT),"1=large hexagons \u00b7 9=fine hexagons"),
+                                           br(), br(),
+                                           numericInput("esn","ES estimator n",50,1),
+                                           sdiv("Metric"),
+                                           selectInput("estimator",NULL,choices=ESTIMATOR_CH),
+                                           sdiv("Style"),
+                                           selectInput("tile","Base map",choices=TILE_CH),
+                                           selectInput("palette","Palette",choices=PALETTE_CH),
+                                           sliderInput("fill_opacity","Opacity",0.1,1,0.75,0.05,ticks=FALSE),
+                                           checkboxInput("show_borders","Hex borders",TRUE),
+                                           checkboxInput("show_effort","Show effort in popup",TRUE),
+                                           br(),
+                                           actionButton("btn_build_hex","Build hex map",class="btn-green w-100",icon=icon("play")),
+                                           br(),br(),
+                                           uiOutput("hex_status_ui")
+                           ),
+                           layout_columns(col_widths=c(8,4),
+                                          card(full_screen=TRUE,
+                                               card_header(class="d-flex justify-content-between align-items-center",
+                                                           span(bs_icon("hexagon")," H3 diversity map"),
+                                                           div(style="display:flex;align-items:center;gap:8px;",
+                                                               uiOutput("hex_metric_badge"),
+                                                               downloadButton("dl_hex_map","",class="btn-ghost btn-sm",
+                                                                              icon=icon("download"),title="Download map as PNG"))),
+                                               withSpinner(leafletOutput("hex_map",height="510px"),color=ACC,type=6)),
+                                          card(
+                                            card_header(bs_icon("list-ul")," Species in selected hexagon"),
+                                            div(style=paste0("color:",MUT,";font-size:.78rem;padding:.4rem .6rem;"),
+                                                "Click any hexagon on the map to see which species occur in it."),
+                                            uiOutput("hex_species_panel")
+                                          )
+                           ),
+                           layout_columns(col_widths=c(6,6),
+                                          card(card_header("Richness distribution"),
+                                               withSpinner(plotOutput("plot_hist",height="195px"),color=ACC,type=6)),
+                                          card(card_header("Top 10 hexagons"),
+                                               withSpinner(plotOutput("plot_top10",height="195px"),color=ACC,type=6)))
+            )
   ),
-
+  
   # ── TAB 3: jSDM ──────────────────────────────────────────
   nav_panel("03 \u00b7 jSDM", icon=bs_icon("cpu"),
-    layout_sidebar(fillable=TRUE,
-      sidebar=sidebar(width=320, bg=PANEL,
-
-        # Step 1 ─────────────────────────────────────────────
-        sdiv("Step 1 \u00b7 Choose layers"),
-        uiOutput("env_layer_picker_ui"),
-        uiOutput("corine_upload_ui"),
-        # Step 2 ─────────────────────────────────────────────
-        sdiv("Step 2 \u00b7 Download & VIF filter"),
-        numericInput("vif_thr","VIF threshold",10,2,50),
-        actionButton("btn_get_env","Download & run VIF",
-                     class="btn-ghost w-100",icon=icon("globe")),
-        br(),
-        uiOutput("env_download_status_ui"),
-        uiOutput("vif_result_ui"),
-        # Step 3 ─────────────────────────────────────────────
-        uiOutput("env_sel_ui"),
-
-        sdiv("Site size"),
-        numericInput("site_size_m", "Site size (metres)",
-                     value=0, min=0, max=500000, step=500),
-        div(style=paste0("font-size:.73rem;color:",MUT,";margin-bottom:4px;"),
-          "0 = use native env. raster resolution (~9 km at 5′). ",
-          "Set a larger value (e.g. 20 000 m) to aggregate occurrences into coarser sites, ",
-          "increasing co-occurrence signal for sparse data. ",
-          "Recommended range for reptile atlas data: 5 000 – 50 000 m."
-        ),
-        uiOutput("site_size_info_ui"),
-
-        sdiv("MCMC settings"),
-        fluidRow(
-          column(6,numericInput("n_iter",  "Iterations",10000,1000)),
-          column(6,numericInput("n_burnin","Burn-in",   2000, 500))),
-        fluidRow(
-          column(6,numericInput("n_thin",  "Thinning",  5,1)),
-          column(6,numericInput("n_latent","Latent vars",2,1,10))),
-        br(),
-        actionButton("btn_run_jsdm","Run jSDM model",class="btn-violet w-100",icon=icon("play")),
-        br(),br(),
-        uiOutput("jsdm_status_ui"),
-        br(),
-        div(id="jsdm_log",class="log-box","Waiting\u2026")
-      ),
-
-      # KPIs — styled for readability
-      layout_columns(col_widths=c(4,4,4),
-        uiOutput("jkpi_sites"), uiOutput("jkpi_spp"), uiOutput("jkpi_vars")),
-
-      navset_card_tab(
-
-        nav_panel("Convergence",
-          layout_columns(col_widths=c(3,9),
-            card(card_header("Select"),
-                 selectInput("conv_sp",  "Species",   choices=NULL),
-                 selectInput("conv_par", "Parameter", choices=NULL)),
-            layout_columns(col_widths=c(12),
-              card(full_screen=TRUE,
-                card_header(class="d-flex justify-content-between align-items-center",
-                  span("Trace"),
-                  downloadButton("dl_plot_trace","",class="btn-ghost btn-sm",icon=icon("download"))),
-                withSpinner(plotOutput("plot_trace",  height="200px"),color=ACC,type=6)),
-              card(full_screen=TRUE,
-                card_header(class="d-flex justify-content-between align-items-center",
-                  span("Posterior density"),
-                  downloadButton("dl_plot_density","",class="btn-ghost btn-sm",icon=icon("download"))),
-                withSpinner(plotOutput("plot_density",height="200px"),color=ACC,type=6)))
-          )
-        ),
-
-        nav_panel("Residual correlations",
-          card(full_screen=TRUE,
-            card_header(class="d-flex justify-content-between align-items-center",
-              span(bs_icon("grid")," Residual correlation matrix"),
-              div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand for detail"),
-                  downloadButton("dl_plot_rescor","",class="btn-ghost btn-sm",icon=icon("download")))),
-            withSpinner(plotOutput("plot_res_cor",height="600px"),color=ACC,type=6))
-        ),
-
-        nav_panel("Species responses",
-          layout_columns(col_widths=c(3,9),
-            card(card_header("Select species"),
-                 selectInput("resp_sp","Species",choices=NULL)),
-            card(full_screen=TRUE,
-              card_header(class="d-flex justify-content-between align-items-center",
-                span("Beta coefficients ± 95% CI"),
-                div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand"),
-                    downloadButton("dl_plot_resp","",class="btn-ghost btn-sm",icon=icon("download")))),
-              withSpinner(plotOutput("plot_sp_resp",height="460px"),color=ACC,type=6)))
-        ),
-
-        nav_panel("Predicted theta",
-          card(full_screen=TRUE,
-            card_header(class="d-flex justify-content-between align-items-center",
-              span("Predicted occupancy θ"),
-              downloadButton("dl_plot_theta","",class="btn-ghost btn-sm",icon=icon("download"))),
-            withSpinner(plotOutput("plot_theta",height="380px"),color=ACC,type=6))
-        ),
-
-        nav_panel("Latent variables",
-          card(full_screen=TRUE,
-            card_header(class="d-flex justify-content-between align-items-center",
-              span("Spatial latent variable scores"),
-              div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand"),
-                  downloadButton("dl_plot_latent","",class="btn-ghost btn-sm",icon=icon("download")))),
-            withSpinner(plotOutput("plot_latent",height="500px"),color=ACC,type=6))
-        ),
-
-        nav_panel("Deviance",
-          card(full_screen=TRUE,
-            card_header(class="d-flex justify-content-between align-items-center",
-              span("Deviance trace"),
-              downloadButton("dl_plot_dev","",class="btn-ghost btn-sm",icon=icon("download"))),
-            withSpinner(plotOutput("plot_deviance",height="360px"),color=ACC,type=6))
-        ),
-
-        nav_panel("Species biplot",
-          card(full_screen=TRUE,
-            card_header(class="d-flex justify-content-between align-items-center",
-              span("Species latent factor loadings (λ₁ vs λ₂)"),
-              div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand"),
-                  downloadButton("dl_plot_biplot","",class="btn-ghost btn-sm",icon=icon("download")))),
-            div(style=paste0("color:",MUT,";font-size:.76rem;padding:.3rem .8rem 0;"),
-              "Same direction + far from origin = positively correlated beyond environment."),
-            withSpinner(plotOutput("plot_sp_biplot",height="600px"),color=ACC,type=6))
-        )
-      )
-    )
+            layout_sidebar(fillable=TRUE,
+                           sidebar=sidebar(width=320, bg=PANEL,
+                                           
+                                           # Step 1 ─────────────────────────────────────────────
+                                           sdiv("Step 1 \u00b7 Choose layers"),
+                                           uiOutput("env_layer_picker_ui"),
+                                           uiOutput("corine_upload_ui"),
+                                           # Step 2 ─────────────────────────────────────────────
+                                           sdiv("Step 2 \u00b7 Download & VIF filter"),
+                                           numericInput("vif_thr","VIF threshold",10,2,50),
+                                           actionButton("btn_get_env","Download & run VIF",
+                                                        class="btn-ghost w-100",icon=icon("globe")),
+                                           br(),
+                                           uiOutput("env_download_status_ui"),
+                                           uiOutput("vif_result_ui"),
+                                           # Step 3 ─────────────────────────────────────────────
+                                           uiOutput("env_sel_ui"),
+                                           
+                                           sdiv("Site size"),
+                                           numericInput("site_size_m", "Site size (metres)",
+                                                        value=0, min=0, max=500000, step=500),
+                                           div(style=paste0("font-size:.73rem;color:",MUT,";margin-bottom:4px;"),
+                                               "0 = use native env. raster resolution (~9 km at 5′). ",
+                                               "Set a larger value (e.g. 20 000 m) to aggregate occurrences into coarser sites, ",
+                                               "increasing co-occurrence signal for sparse data. ",
+                                               "Recommended range for reptile atlas data: 5 000 – 50 000 m."
+                                           ),
+                                           uiOutput("site_size_info_ui"),
+                                           
+                                           sdiv("MCMC settings"),
+                                           fluidRow(
+                                             column(6,numericInput("n_iter",  "Iterations",10000,1000)),
+                                             column(6,numericInput("n_burnin","Burn-in",   2000, 500))),
+                                           fluidRow(
+                                             column(6,numericInput("n_thin",  "Thinning",  5,1)),
+                                             column(6,numericInput("n_latent","Latent vars",2,1,10))),
+                                           br(),
+                                           actionButton("btn_run_jsdm","Run jSDM model",class="btn-violet w-100",icon=icon("play")),
+                                           br(),br(),
+                                           uiOutput("jsdm_status_ui"),
+                                           br(),
+                                           div(id="jsdm_log",class="log-box","Waiting\u2026")
+                           ),
+                           
+                           # KPIs — styled for readability
+                           layout_columns(col_widths=c(4,4,4),
+                                          uiOutput("jkpi_sites"), uiOutput("jkpi_spp"), uiOutput("jkpi_vars")),
+                           
+                           navset_card_tab(
+                             
+                             nav_panel("Convergence",
+                                       layout_columns(col_widths=c(3,9),
+                                                      card(card_header("Select"),
+                                                           selectInput("conv_sp",  "Species",   choices=NULL),
+                                                           selectInput("conv_par", "Parameter", choices=NULL)),
+                                                      layout_columns(col_widths=c(12),
+                                                                     card(full_screen=TRUE,
+                                                                          card_header(class="d-flex justify-content-between align-items-center",
+                                                                                      span("Trace"),
+                                                                                      downloadButton("dl_plot_trace","",class="btn-ghost btn-sm",icon=icon("download"))),
+                                                                          withSpinner(plotOutput("plot_trace",  height="200px"),color=ACC,type=6)),
+                                                                     card(full_screen=TRUE,
+                                                                          card_header(class="d-flex justify-content-between align-items-center",
+                                                                                      span("Posterior density"),
+                                                                                      downloadButton("dl_plot_density","",class="btn-ghost btn-sm",icon=icon("download"))),
+                                                                          withSpinner(plotOutput("plot_density",height="200px"),color=ACC,type=6)))
+                                       )
+                             ),
+                             
+                             nav_panel("Residual correlations",
+                                       card(full_screen=TRUE,
+                                            card_header(class="d-flex justify-content-between align-items-center",
+                                                        span(bs_icon("grid")," Residual correlation matrix"),
+                                                        div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand for detail"),
+                                                            downloadButton("dl_plot_rescor","",class="btn-ghost btn-sm",icon=icon("download")))),
+                                            withSpinner(plotOutput("plot_res_cor",height="600px"),color=ACC,type=6))
+                             ),
+                             
+                             nav_panel("Species responses",
+                                       layout_columns(col_widths=c(3,9),
+                                                      card(card_header("Select species"),
+                                                           selectInput("resp_sp","Species",choices=NULL)),
+                                                      card(full_screen=TRUE,
+                                                           card_header(class="d-flex justify-content-between align-items-center",
+                                                                       span("Beta coefficients ± 95% CI"),
+                                                                       div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand"),
+                                                                           downloadButton("dl_plot_resp","",class="btn-ghost btn-sm",icon=icon("download")))),
+                                                           withSpinner(plotOutput("plot_sp_resp",height="460px"),color=ACC,type=6)))
+                             ),
+                             
+                             nav_panel("Predicted theta",
+                                       card(full_screen=TRUE,
+                                            card_header(class="d-flex justify-content-between align-items-center",
+                                                        span("Predicted occupancy θ"),
+                                                        downloadButton("dl_plot_theta","",class="btn-ghost btn-sm",icon=icon("download"))),
+                                            withSpinner(plotOutput("plot_theta",height="380px"),color=ACC,type=6))
+                             ),
+                             
+                             nav_panel("Latent variables",
+                                       card(full_screen=TRUE,
+                                            card_header(class="d-flex justify-content-between align-items-center",
+                                                        span("Spatial latent variable scores"),
+                                                        div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand"),
+                                                            downloadButton("dl_plot_latent","",class="btn-ghost btn-sm",icon=icon("download")))),
+                                            withSpinner(plotOutput("plot_latent",height="500px"),color=ACC,type=6))
+                             ),
+                             
+                             nav_panel("Deviance",
+                                       card(full_screen=TRUE,
+                                            card_header(class="d-flex justify-content-between align-items-center",
+                                                        span("Deviance trace"),
+                                                        downloadButton("dl_plot_dev","",class="btn-ghost btn-sm",icon=icon("download"))),
+                                            withSpinner(plotOutput("plot_deviance",height="360px"),color=ACC,type=6))
+                             ),
+                             
+                             nav_panel("Species biplot",
+                                       card(full_screen=TRUE,
+                                            card_header(class="d-flex justify-content-between align-items-center",
+                                                        span("Species latent factor loadings (λ₁ vs λ₂)"),
+                                                        div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand"),
+                                                            downloadButton("dl_plot_biplot","",class="btn-ghost btn-sm",icon=icon("download")))),
+                                            div(style=paste0("color:",MUT,";font-size:.76rem;padding:.3rem .8rem 0;"),
+                                                "Same direction + far from origin = positively correlated beyond environment."),
+                                            withSpinner(plotOutput("plot_sp_biplot",height="600px"),color=ACC,type=6))
+                             )
+                           )
+            )
   ),
-
+  
   # ── TAB 4: Data ────────────────────────────────────────────
   nav_panel("04 \u00b7 Data", icon=bs_icon("file-earmark-arrow-down"),
-    layout_columns(col_widths=c(12),
-      card(
-        card_header(bs_icon("file-earmark-arrow-down")," Downloads"),
-        card_body(
-          tags$p(style=paste0("color:",MUT,";font-size:.82rem;"),
-            "Download your occurrence data. ",
-            "All map and plot downloads are available via the \u2913 buttons ",
-            "directly on each figure in the tabs above."),
-          layout_columns(col_widths=c(4,4,4),
-            div(
-              tags$b(style=paste0("color:",TXT,";font-size:.78rem;display:block;margin-bottom:6px;"),
-                     "Occurrences"),
-              downloadButton("dl_occ","Download CSV",class="btn-green w-100")
-            ),
-            div(
-              tags$b(style=paste0("color:",TXT,";font-size:.78rem;display:block;margin-bottom:6px;"),
-                     "jSDM model object"),
-              downloadButton("dl_jsdm","Download RDS",class="btn-ghost w-100")
-            ),
-            div(
-              tags$b(style=paste0("color:",TXT,";font-size:.78rem;display:block;margin-bottom:6px;"),
-                     "Hex diversity table"),
-              downloadButton("dl_hex_csv","Download CSV",class="btn-ghost w-100")
+            layout_columns(col_widths=c(12),
+                           card(
+                             card_header(bs_icon("file-earmark-arrow-down")," Downloads"),
+                             card_body(
+                               tags$p(style=paste0("color:",MUT,";font-size:.82rem;"),
+                                      "Download your occurrence data. ",
+                                      "All map and plot downloads are available via the \u2913 buttons ",
+                                      "directly on each figure in the tabs above."),
+                               layout_columns(col_widths=c(4,4,4),
+                                              div(
+                                                tags$b(style=paste0("color:",TXT,";font-size:.78rem;display:block;margin-bottom:6px;"),
+                                                       "Occurrences"),
+                                                downloadButton("dl_occ","Download CSV",class="btn-green w-100")
+                                              ),
+                                              div(
+                                                tags$b(style=paste0("color:",TXT,";font-size:.78rem;display:block;margin-bottom:6px;"),
+                                                       "jSDM model object"),
+                                                downloadButton("dl_jsdm","Download RDS",class="btn-ghost w-100")
+                                              ),
+                                              div(
+                                                tags$b(style=paste0("color:",TXT,";font-size:.78rem;display:block;margin-bottom:6px;"),
+                                                       "Hex diversity table"),
+                                                downloadButton("dl_hex_csv","Download CSV",class="btn-ghost w-100")
+                                              )
+                               )
+                             )
+                           )
             )
-          )
-        )
-      )
-    )
   ),
-
+  
   # ── TAB 5: Help ───────────────────────────────────────────
   nav_panel("Help", icon=bs_icon("question-circle"),
-    layout_columns(col_widths=c(6,6),
-      card(card_header("Workflow"),
-        card_body(tags$ol(style="line-height:2;padding-left:1.2rem;",
-          tags$li(tags$b("01 \u00b7 Data")," — Enter species or higher-taxon names. ",
-            "Higher taxa (e.g. Serpentes) auto-expand via GBIF backbone. ",
-            "Choose countries or WKT, apply filters, then click Fetch. ",
-            "Or upload a CSV directly with the file browser."),
-          tags$li(tags$b("02 \u00b7 Diversity")," — Choose H3 resolution and metric. Build to render hexagonal diversity polygons."),
-          tags$li(tags$b("03 \u00b7 jSDM")," — Download WorldClim + land-cover layers. ",
-            "Optional extras: NDVI, CORINE (EU only). ",
-            "VIF filtering removes collinear predictors; retained/dropped variables are shown. ",
-            "Manually include/exclude predictors before running the MCMC model."),
-          tags$li(tags$b("04 \u00b7 Export")," — Preview and download the PNG map; download CSV, GeoJSON, or jSDM RDS.")))
-      ),
-      card(card_header("Reference"),
-        card_body(tags$dl(
-          tags$dt("Species richness"),   tags$dd("Unique species per hexagon."),
-          tags$dt("Shannon H"),          tags$dd("Entropy; sensitive to rare species."),
-          tags$dt("Simpson D"),          tags$dd("Probability two individuals differ."),
-          tags$dt("ES / Hurlbert"),      tags$dd("Expected species in n rarefied records."),
-          tags$dt("Hill 1/2/inf"),       tags$dd("q=1 exp(H), q=2 1/D, q=inf 1/maxp."),
-          tags$dt("jSDM latent factors"),tags$dd("Shared axes capturing residual co-occurrence beyond environment."),
-          tags$dt("Beta coefficients"),  tags$dd("Posterior mean effect of each predictor on occupancy.")
-        ))
-      )
-    )
+            layout_columns(col_widths=c(6,6),
+                           card(card_header("Workflow"),
+                                card_body(tags$ol(style="line-height:2;padding-left:1.2rem;",
+                                                  tags$li(tags$b("01 \u00b7 Data")," — Enter species or higher-taxon names. ",
+                                                          "Higher taxa (e.g. Serpentes) auto-expand via GBIF backbone. ",
+                                                          "Choose countries or WKT, apply filters, then click Fetch. ",
+                                                          "Or upload a CSV directly with the file browser."),
+                                                  tags$li(tags$b("02 \u00b7 Diversity")," — Choose H3 resolution and metric. Build to render hexagonal diversity polygons."),
+                                                  tags$li(tags$b("03 \u00b7 jSDM")," — Download WorldClim + land-cover layers. ",
+                                                          "Optional extras: NDVI, CORINE (EU only). ",
+                                                          "VIF filtering removes collinear predictors; retained/dropped variables are shown. ",
+                                                          "Manually include/exclude predictors before running the MCMC model."),
+                                                  tags$li(tags$b("04 \u00b7 Export")," — Preview and download the PNG map; download CSV, GeoJSON, or jSDM RDS.")))
+                           ),
+                           card(card_header("Reference"),
+                                card_body(tags$dl(
+                                  tags$dt("Species richness"),   tags$dd("Unique species per hexagon."),
+                                  tags$dt("Shannon H"),          tags$dd("Entropy; sensitive to rare species."),
+                                  tags$dt("Simpson D"),          tags$dd("Probability two individuals differ."),
+                                  tags$dt("ES / Hurlbert"),      tags$dd("Expected species in n rarefied records."),
+                                  tags$dt("Hill 1/2/inf"),       tags$dd("q=1 exp(H), q=2 1/D, q=inf 1/maxp."),
+                                  tags$dt("jSDM latent factors"),tags$dd("Shared axes capturing residual co-occurrence beyond environment."),
+                                  tags$dt("Beta coefficients"),  tags$dd("Posterior mean effect of each predictor on occupancy.")
+                                ))
+                           )
+            )
   )
 )
 
@@ -903,7 +903,7 @@ ui <- page_navbar(
 options(shiny.maxRequestSize = 500 * 1024^2)
 
 server <- function(input, output, session) {
-
+  
   rv <- reactiveValues(
     occ_raw=NULL, occ_clean=NULL,
     polygons=NULL, diversity=NULL,
@@ -914,7 +914,7 @@ server <- function(input, output, session) {
     wkt=NULL,
     data_st="idle", hex_st="idle", jsdm_st="idle", env_st="idle"
   )
-
+  
   # Log helpers
   ts  <- function() format(Sys.time(),"%H:%M:%S")
   log_to <- function(id, msg, col=GRN) {
@@ -924,18 +924,18 @@ server <- function(input, output, session) {
   }
   logd <- function(m, col=GRN) log_to("data_log", m, col)
   logj <- function(m, col=GRN) log_to("jsdm_log", m, col)
-
+  
   get_wkt <- reactive({
     if (input$geo_mode=="wkt") { req(nchar(trimws(input$wkt_input))>0); trimws(input$wkt_input) }
     else { req(length(input$countries)>0); countries_to_wkt(input$countries) }
   })
-
+  
   observe({
     if (nchar(input$gbif_user) >0) Sys.setenv(GBIF_USER =input$gbif_user)
     if (nchar(input$gbif_pwd)  >0) Sys.setenv(GBIF_PWD  =input$gbif_pwd)
     if (nchar(input$gbif_email)>0) Sys.setenv(GBIF_EMAIL=input$gbif_email)
   })
-
+  
   # ── GBIF fetch ────────────────────────────────────────────
   observeEvent(input$btn_fetch, {
     req(input$taxon_query); rv$data_st <- "running"
@@ -967,10 +967,10 @@ server <- function(input, output, session) {
         logd(paste0("\u2713 ",n_distinct(df2$species)," spp / ",nrow(df2)," records."))
         incProgress(0.35)
       }, error=function(e){rv$data_st<-"error";logd(paste0("\u2715 ",e$message),col=RED)
-                           showNotification(e$message,type="error")})
+      showNotification(e$message,type="error")})
     })
   })
-
+  
   # ── CSV upload — always visible button, no conditionalPanel ──
   observeEvent(input$btn_load_csv, {
     req(input$csv_upload)
@@ -983,6 +983,9 @@ server <- function(input, output, session) {
       names(df)[names(df)==sp_col]  <- "species"
       names(df)[names(df)==lon_col] <- "decimalLongitude"
       names(df)[names(df)==lat_col] <- "decimalLatitude"
+      clean_num <- function(x) as.numeric(gsub("[^0-9.-]", "", as.character(x)))
+      df$decimalLongitude <- clean_num(df$decimalLongitude)
+      df$decimalLatitude  <- clean_num(df$decimalLatitude)
       df <- df %>% filter(!is.na(decimalLongitude),!is.na(decimalLatitude),
                           !is.na(species),species!="")
       if (!"year"         %in% names(df)) df$year          <- NA_integer_
@@ -993,19 +996,19 @@ server <- function(input, output, session) {
       showNotification(paste0("\u2713 ",nrow(df)," records loaded."),type="message")
     }, error=function(e) showNotification(paste("CSV error:",e$message),type="error"))
   })
-
+  
   # ── KPIs ──────────────────────────────────────────────────
   # KPI helper — icon wrapped in a coloured circle for visibility
   kpi_icon <- function(icon_name, bg=ACC) {
     div(style=paste0(
-          "width:42px;height:42px;border-radius:50%;",
-          "background:", bg, ";display:flex;",
-          "align-items:center;justify-content:center;"),
+      "width:42px;height:42px;border-radius:50%;",
+      "background:", bg, ";display:flex;",
+      "align-items:center;justify-content:center;"),
       bs_icon(icon_name, size="1.2em",
               style=paste0("color:", D, ";"))
     )
   }
-
+  
   output$kpi_records <- renderUI({
     n <- if (!is.null(rv$occ_clean)) nrow(rv$occ_clean) else "—"
     value_box("Records", n,
@@ -1020,7 +1023,7 @@ server <- function(input, output, session) {
     value_box("Status", badge_status(rv$data_st),
               showcase=kpi_icon("database-check", VIO), theme="primary")
   })
-
+  
   # ── Occurrence map ────────────────────────────────────────
   output$occ_map <- renderLeaflet({
     leaflet() %>% addProviderTiles(providers$CartoDB.DarkMatter) %>% setView(20,20,zoom=2)
@@ -1029,7 +1032,7 @@ server <- function(input, output, session) {
     req(rv$occ_clean)
     df   <- rv$occ_clean
     mode <- if (!is.null(input$occ_color_by)) input$occ_color_by else "species"
-
+    
     # Derive grouping variable
     df$group <- if (mode == "genus") {
       # First word of species name = genus
@@ -1037,15 +1040,15 @@ server <- function(input, output, session) {
     } else {
       df$species
     }
-
+    
     grps <- unique(df$group)
     pal  <- colorFactor(viridis(min(length(grps), 256), option="turbo"), domain=grps)
-
+    
     leafletProxy("occ_map") %>% clearMarkers() %>% clearControls() %>%
       addCircleMarkers(data=df, lng=~decimalLongitude, lat=~decimalLatitude,
-        color=~pal(group), radius=3, weight=1, opacity=.9, fillOpacity=.65,
-        popup=~paste0("<b>",species,"</b><br>",
-                      round(decimalLongitude,4),", ",round(decimalLatitude,4))) %>%
+                       color=~pal(group), radius=3, weight=1, opacity=.9, fillOpacity=.65,
+                       popup=~paste0("<b>",species,"</b><br>",
+                                     round(decimalLongitude,4),", ",round(decimalLatitude,4))) %>%
       addLegend(
         pal      = pal,
         values   = grps,
@@ -1057,7 +1060,7 @@ server <- function(input, output, session) {
       fitBounds(min(df$decimalLongitude,na.rm=TRUE), min(df$decimalLatitude,na.rm=TRUE),
                 max(df$decimalLongitude,na.rm=TRUE), max(df$decimalLatitude,na.rm=TRUE))
   })
-
+  
   # Download occurrence map as PNG
   output$dl_occ_map <- downloadHandler(
     filename = function() paste0("occurrence_map_",
@@ -1069,27 +1072,27 @@ server <- function(input, output, session) {
       mode <- if (!is.null(input$occ_color_by)) input$occ_color_by else "species"
       df$group <- if (mode=="genus") sapply(strsplit(df$species," "),`[`,1) else df$species
       grps <- sort(unique(df$group))
-
+      
       world <- ne_countries(scale="medium", returnclass="sf")
       bbox  <- c(xmin=min(df$decimalLongitude,na.rm=TRUE)-1,
                  xmax=max(df$decimalLongitude,na.rm=TRUE)+1,
                  ymin=min(df$decimalLatitude, na.rm=TRUE)-1,
                  ymax=max(df$decimalLatitude, na.rm=TRUE)+1)
-
+      
       # Cap legend to 30 items to keep PNG readable
       show_legend <- length(grps) <= 30
       n_col <- min(length(grps), 256)
       cols  <- setNames(viridis(n_col, option="turbo")[
-                  as.integer(cut(seq_along(grps), n_col, labels=FALSE))],
-                grps)
-
+        as.integer(cut(seq_along(grps), n_col, labels=FALSE))],
+        grps)
+      
       p <- ggplot() +
         geom_sf(data=world, fill="#111827", color="#1f2d3d", linewidth=.2) +
         geom_point(data=df, aes(x=decimalLongitude, y=decimalLatitude,
                                 color=group), size=.8, alpha=.75) +
         scale_color_manual(values=cols, name=if(mode=="genus") "Genus" else "Species",
                            guide=if(show_legend) guide_legend(ncol=2, override.aes=list(size=3))
-                                 else "none") +
+                           else "none") +
         coord_sf(xlim=c(bbox["xmin"],bbox["xmax"]), ylim=c(bbox["ymin"],bbox["ymax"])) +
         labs(title=paste("Occurrence map —", if(mode=="genus") "by genus" else "by species"),
              x="Longitude", y="Latitude") +
@@ -1098,11 +1101,11 @@ server <- function(input, output, session) {
               legend.key.size=unit(0.35,"cm"))
       if (!show_legend)
         p <- p + labs(caption=paste0(length(grps)," groups — legend hidden (>30 items)"))
-
+      
       ggsave(file, p, width=12, height=8, dpi=250, bg=D)
     }
   )
-
+  
   # ── H3 diversity ──────────────────────────────────────────
   observeEvent(input$btn_build_hex,{
     req(rv$occ_clean); rv$hex_st <- "running"
@@ -1121,12 +1124,12 @@ server <- function(input, output, session) {
         rv$polygons <- build_h3_polys(cd); rv$hex_st <- "done"
         incProgress(0.2)
       },error=function(e){rv$hex_st<-"error"
-        showNotification(paste("Hex error:",e$message),type="error")})
+      showNotification(paste("Hex error:",e$message),type="error")})
     })
   })
-
+  
   output$hex_status_ui   <- renderUI(badge_status(rv$hex_st))
-
+  
   output$dl_hex_map <- downloadHandler(
     filename = function() paste0("hex_map_", input$estimator, ".png"),
     content  = function(file) {
@@ -1157,10 +1160,10 @@ server <- function(input, output, session) {
     req(rv$polygons)
     tags$span(class="badge badge-cyan", LEG[[input$estimator]])
   })
-
+  
   output$hex_map <- renderLeaflet(
     leaflet() %>% addProviderTiles(providers[[input$tile]]) %>% setView(20,38,zoom=5))
-
+  
   observe({
     req(rv$polygons); polys <- rv$polygons; est <- input$estimator; vals <- polys[[est]]
     pal <- colorNumeric(viridis(100,option=input$palette),domain=vals,na.color="transparent")
@@ -1171,17 +1174,17 @@ server <- function(input, output, session) {
     leafletProxy("hex_map",data=polys) %>% clearShapes() %>% clearControls() %>%
       addProviderTiles(providers[[input$tile]]) %>%
       addPolygons(fillColor=~pal(get(est)),color=brd,weight=0.6,opacity=.9,
-        fillOpacity=input$fill_opacity,popup=pop,
-        highlight=highlightOptions(weight=2,color="#fff",
-          fillOpacity=min(input$fill_opacity+.15,1),bringToFront=TRUE)) %>%
+                  fillOpacity=input$fill_opacity,popup=pop,
+                  highlight=highlightOptions(weight=2,color="#fff",
+                                             fillOpacity=min(input$fill_opacity+.15,1),bringToFront=TRUE)) %>%
       addLegend(pal=pal,values=vals,title=LEG[[est]],opacity=.9,position="bottomright") %>%
       fitBounds(st_bbox(polys)["xmin"],st_bbox(polys)["ymin"],
                 st_bbox(polys)["xmax"],st_bbox(polys)["ymax"])
   })
-
+  
   # ── Hex click: show species in that cell ──────────────────
   rv$clicked_cell <- NULL
-
+  
   observeEvent(input$hex_map_shape_click, {
     click <- input$hex_map_shape_click
     req(click, rv$occ_clean, rv$polygons)
@@ -1194,7 +1197,7 @@ server <- function(input, output, session) {
     cell_id  <- rv$polygons$cell[idx]
     rv$clicked_cell <- cell_id
   })
-
+  
   output$hex_species_panel <- renderUI({
     req(rv$clicked_cell, rv$occ_clean)
     df  <- rv$occ_clean
@@ -1213,30 +1216,30 @@ server <- function(input, output, session) {
     tagList(
       div(style=paste0("background:",BRD,";border-radius:6px;padding:6px 10px;",
                        "margin:.4rem;font-size:.75rem;color:",TXT,";"),
-        tags$b(length(spp), " species  ·  ", n_rec, " records"),
-        br(),
-        tags$span(style=paste0("color:",MUT,";font-size:.68rem;"), rv$clicked_cell)
+          tags$b(length(spp), " species  ·  ", n_rec, " records"),
+          br(),
+          tags$span(style=paste0("color:",MUT,";font-size:.68rem;"), rv$clicked_cell)
       ),
       div(style=paste0("padding:.3rem .5rem;max-height:380px;overflow-y:auto;"),
-        lapply(spp, function(sp) {
-          n <- nrow(df2[df2$species==sp,])
-          div(style=paste0("display:flex;justify-content:space-between;",
-                           "padding:4px 6px;border-bottom:1px solid ",BRD,";",
-                           "font-size:.78rem;"),
-            tags$span(style=paste0("color:",TXT,";font-style:italic;"), sp),
-            tags$span(style=paste0("color:",ACC,";font-weight:600;"), n, " rec.")
-          )
-        })
+          lapply(spp, function(sp) {
+            n <- nrow(df2[df2$species==sp,])
+            div(style=paste0("display:flex;justify-content:space-between;",
+                             "padding:4px 6px;border-bottom:1px solid ",BRD,";",
+                             "font-size:.78rem;"),
+                tags$span(style=paste0("color:",TXT,";font-style:italic;"), sp),
+                tags$span(style=paste0("color:",ACC,";font-weight:600;"), n, " rec.")
+            )
+          })
       )
     )
   })
-
+  
   output$plot_hist <- renderPlot({
     req(rv$polygons); df <- as.data.frame(rv$polygons)
     ggplot(df,aes(x=richness))+geom_histogram(binwidth=1,fill=ACC,color=D,alpha=.85)+
       labs(x="Species richness",y="Hexagons")+gg_dark()
   },bg="transparent")
-
+  
   output$plot_top10 <- renderPlot({
     req(rv$polygons)
     df <- as.data.frame(rv$polygons)
@@ -1258,7 +1261,7 @@ server <- function(input, output, session) {
       gg_dark() +
       theme(axis.text.y=element_text(size=9, color=TXT))
   }, bg="transparent")
-
+  
   # ── jSDM: layer picker with cache status ──────────────────
   output$env_layer_picker_ui <- renderUI({
     cached <- layers_cached()
@@ -1271,60 +1274,60 @@ server <- function(input, output, session) {
     }
     tagList(
       checkboxGroupInput("base_env_sel", "Base layers",
-        choiceValues  = c("bio","elev","built","grassland","trees","footprint","water","wetland"),
-        choiceNames   = list(
-          make_label("bio",       "Bioclim (19 vars)"),
-          make_label("elev",      "Elevation"),
-          make_label("built",     "Built area"),
-          make_label("grassland", "Grassland"),
-          make_label("trees",     "Tree cover"),
-          make_label("footprint", "Human footprint"),
-          make_label("water",     "Surface water fraction"),
-          make_label("wetland",   "Wetland fraction")),
-        selected = c("bio","elev","built","grassland","trees","footprint","water","wetland")),
+                         choiceValues  = c("bio","elev","built","grassland","trees","footprint","water","wetland"),
+                         choiceNames   = list(
+                           make_label("bio",       "Bioclim (19 vars)"),
+                           make_label("elev",      "Elevation"),
+                           make_label("built",     "Built area"),
+                           make_label("grassland", "Grassland"),
+                           make_label("trees",     "Tree cover"),
+                           make_label("footprint", "Human footprint"),
+                           make_label("water",     "Surface water fraction"),
+                           make_label("wetland",   "Wetland fraction")),
+                         selected = c("bio","elev","built","grassland","trees","footprint","water","wetland")),
       checkboxGroupInput("extra_env", "Optional layers",
-        choiceValues = c("ndvi","corine"),
-        choiceNames  = list(
-          make_label("ndvi",   "NDVI proxy (bare-soil, global)"),
-          make_label("corine", tags$span("CORINE ⚠ EU only"))),
-        selected = NULL)
+                         choiceValues = c("ndvi","corine"),
+                         choiceNames  = list(
+                           make_label("ndvi",   "NDVI proxy (bare-soil, global)"),
+                           make_label("corine", tags$span("CORINE ⚠ EU only"))),
+                         selected = NULL)
     )
   })
-
+  
   # ── jSDM: CORINE upload UI ─────────────────────────────────
   output$corine_upload_ui <- renderUI({
     req("corine" %in% input$extra_env)
     tagList(
       tags$small(style=paste0("color:",AMB),
-        "CORINE cannot be auto-downloaded. Upload a GeoTIFF for your study area:"),
+                 "CORINE cannot be auto-downloaded. Upload a GeoTIFF for your study area:"),
       fileInput("corine_file", NULL, accept=c(".tif",".tiff"),
                 buttonLabel="Browse...", placeholder="No CORINE file selected")
     )
   })
-
+  
   output$env_download_status_ui <- renderUI(badge_status(rv$env_st))
-
+  
   # ── jSDM: env layers ───────────────────────────────────────
   observeEvent(input$btn_get_env, {
     wkt <- tryCatch(rv$wkt %||% get_wkt(), error=function(e) NULL)
     req(wkt)
     v       <- vect(wkt, crs="EPSG:4326")
     ext_obj <- ext(v)
-
+    
     base_sel  <- if (length(input$base_env_sel)  > 0) input$base_env_sel
-                 else c("bio","elev","built","grassland","trees","footprint","water","wetland")
+    else c("bio","elev","built","grassland","trees","footprint","water","wetland")
     extra_sel <- if (length(input$extra_env) > 0) input$extra_env else character(0)
-
+    
     logj(paste0("Requested: ", paste(c(base_sel, extra_sel), collapse=", ")), col=AMB)
     rv$env_st <- "running"
-
+    
     withProgress(message="Downloading env. layers...", value=0.05, {
       tryCatch({
         # Pass extra (non-corine) to get_env_stack
         env <- get_env_stack(ext_obj,
                              extra = extra_sel[extra_sel != "corine"],
                              wdir  = tempdir())
-
+        
         # Optionally add CORINE from uploaded file
         if ("corine" %in% extra_sel && !is.null(input$corine_file)) {
           logj("Adding CORINE from uploaded file...")
@@ -1355,18 +1358,18 @@ server <- function(input, output, session) {
                      error=function(e) NULL)
           }
         }
-
+        
         incProgress(0.5, detail="VIF filtering...")
         logj("Running VIF filtering...")
         vr <- run_vif(env, thr=input$vif_thr)
-
+        
         rv$env_rast_all <- env
         rv$env_rast_sel <- vr$rast
         rv$vif_retained <- vr$retained
         rv$vif_dropped  <- vr$dropped
         rv$vif_table    <- vr$vif_table
         rv$env_st       <- "done"
-
+        
         logj(paste0("\u2713 ", nlyr(env), " layers total | ",
                     length(vr$retained), " retained | ",
                     length(vr$dropped),  " dropped by VIF."))
@@ -1374,7 +1377,7 @@ server <- function(input, output, session) {
                                 length(vr$retained), " pass VIF."),
                          type="message", duration=6)
         incProgress(0.45)
-
+        
       }, error=function(e) {
         rv$env_st <- "error"
         logj(paste0("\u2715 ", e$message), col=RED)
@@ -1382,13 +1385,13 @@ server <- function(input, output, session) {
       })
     })
   })
-
-
+  
+  
   # VIF result display
   output$vif_result_ui <- renderUI({
     req(rv$vif_retained)
     ret_html <- paste(sapply(rv$vif_retained,
-      function(v) paste0("<span class='vif-retained'>",v,"</span>")),collapse=" ")
+                             function(v) paste0("<span class='vif-retained'>",v,"</span>")),collapse=" ")
     drp_html <- if (length(rv$vif_dropped) > 0) {
       paste(sapply(rv$vif_dropped, function(v) {
         paste0("<span class='vif-dropped'>", v, "</span>")
@@ -1399,18 +1402,18 @@ server <- function(input, output, session) {
     tagList(
       div(style=paste0("background:",D,";border:1px solid ",BRD,
                        ";border-radius:7px;padding:8px 10px;margin:6px 0;font-size:.75rem;"),
-        tags$p(style="margin:0 0 4px;",
-               tags$span(style=paste0("color:",GRN,";font-family:'Space Grotesk';font-weight:700;"),
-                         "\u2713 Retained: "),
-               HTML(ret_html)),
-        tags$p(style="margin:0;",
-               tags$span(style=paste0("color:",RED,";font-family:'Space Grotesk';font-weight:700;"),
-                         "\u2715 Dropped: "),
-               HTML(drp_html))
+          tags$p(style="margin:0 0 4px;",
+                 tags$span(style=paste0("color:",GRN,";font-family:'Space Grotesk';font-weight:700;"),
+                           "\u2713 Retained: "),
+                 HTML(ret_html)),
+          tags$p(style="margin:0;",
+                 tags$span(style=paste0("color:",RED,";font-family:'Space Grotesk';font-weight:700;"),
+                           "\u2715 Dropped: "),
+                 HTML(drp_html))
       )
     )
   })
-
+  
   # Env variable selector (Step 3 — after VIF)
   output$env_sel_ui <- renderUI({
     req(rv$vif_retained, rv$env_rast_all)
@@ -1428,11 +1431,11 @@ server <- function(input, output, session) {
           tags$span(style=paste0("color:",RED,";font-weight:700;"), "[DROP]"),
           " = flagged as collinear. You can override either."),
       checkboxGroupInput("env_var_check", "",
-        choices  = choice_labels,
-        selected = rv$vif_retained)
+                         choices  = choice_labels,
+                         selected = rv$vif_retained)
     )
   })
-
+  
   # ── jSDM KPIs ────────────────────────────────────────────
   output$site_size_info_ui <- renderUI({
     sz <- if (!is.null(input$site_size_m)) input$site_size_m else 0
@@ -1441,36 +1444,36 @@ server <- function(input, output, session) {
       deg <- round(sz / 111000, 3)
       div(style=paste0("background:",BRD,";border-radius:6px;padding:5px 9px;",
                        "font-size:.72rem;color:",TXT,";margin-bottom:4px;"),
-        tags$b(style=paste0("color:",ACC,";"), "Custom grid active: "),
-        paste0(sz, " m ≈ ", deg, "° (",
-               round(sz/1000, 1), " km)")
+          tags$b(style=paste0("color:",ACC,";"), "Custom grid active: "),
+          paste0(sz, " m ≈ ", deg, "° (",
+                 round(sz/1000, 1), " km)")
       )
     } else {
       div(style=paste0("font-size:.72rem;color:",MUT,";margin-bottom:4px;"),
-        "Native resolution: ~9 km (5′ arc-min)")
+          "Native resolution: ~9 km (5′ arc-min)")
     }
   })
-
+  
   output$jkpi_sites <- renderUI({
     n <- if (!is.null(rv$jsdm_data)) nrow(rv$jsdm_data$pa) else
-         if (!is.null(rv$env_rast_sel)) terra::ncell(rv$env_rast_sel[[1]]) else "—"
+      if (!is.null(rv$env_rast_sel)) terra::ncell(rv$env_rast_sel[[1]]) else "—"
     value_box("Sites",    as.character(n),
               showcase=kpi_icon("grid-3x3", ACC), theme="primary")
   })
   output$jkpi_spp <- renderUI({
     n <- if (!is.null(rv$jsdm_data)) length(rv$jsdm_data$species) else
-         if (!is.null(rv$occ_clean)) n_distinct(rv$occ_clean$species) else "—"
+      if (!is.null(rv$occ_clean)) n_distinct(rv$occ_clean$species) else "—"
     value_box("Species",  as.character(n),
               showcase=kpi_icon("bug-fill", GRN), theme="primary")
   })
   output$jkpi_vars <- renderUI({
     n <- if (!is.null(rv$jsdm_data)) length(rv$jsdm_data$env_vars) else
-         if (!is.null(rv$env_rast_sel)) nlyr(rv$env_rast_sel) else "—"
+      if (!is.null(rv$env_rast_sel)) nlyr(rv$env_rast_sel) else "—"
     value_box("Env vars", as.character(n),
               showcase=kpi_icon("bar-chart-fill", AMB), theme="primary")
   })
   output$jsdm_status_ui <- renderUI(badge_status(rv$jsdm_st))
-
+  
   # ── jSDM run ──────────────────────────────────────────────
   observeEvent(input$btn_run_jsdm,{
     req(rv$occ_clean, rv$env_rast_all)
@@ -1480,13 +1483,13 @@ server <- function(input, output, session) {
       tryCatch({
         # Build env raster from user selection
         sel <- if(!is.null(input$env_var_check)&&length(input$env_var_check)>0)
-                 intersect(input$env_var_check,names(rv$env_rast_all))
-               else rv$vif_retained
+          intersect(input$env_var_check,names(rv$env_rast_all))
+        else rv$vif_retained
         env_use <- rv$env_rast_all[[sel]]
         logj(paste0("Using ",nlyr(env_use)," predictors: ",paste(sel,collapse=", ")))
         incProgress(0.1,detail="Building PA matrix\u2026")
         site_sz <- if (!is.null(input$site_size_m) && input$site_size_m > 0)
-                      input$site_size_m else NULL
+          input$site_size_m else NULL
         if (!is.null(site_sz))
           logj(paste0("Custom site size: ", site_sz, " m"), col=AMB)
         else
@@ -1495,12 +1498,12 @@ server <- function(input, output, session) {
         rv$jsdm_data <- jd
         logj(paste0("PA matrix: ",nrow(jd$pa)," sites x ",ncol(jd$pa)," species."))
         logj(paste0("Site grid: ", jd$site_desc))
-
+        
         # Populate species dropdowns BEFORE running model
         spp_names <- jd$species
         updateSelectInput(session,"conv_sp",  choices=spp_names, selected=spp_names[1])
         updateSelectInput(session,"resp_sp",  choices=spp_names, selected=spp_names[1])
-
+        
         logj(paste0("MCMC: iter=",input$n_iter," burnin=",input$n_burnin,
                     " thin=",input$n_thin," latent=",input$n_latent,"\u2026"),col=AMB)
         incProgress(0.1,detail="Running MCMC\u2026")
@@ -1510,7 +1513,7 @@ server <- function(input, output, session) {
           mod <- run_jsdm_model(jd,input$n_iter,input$n_burnin,input$n_thin,input$n_latent)
         ))
         rv$jsdm_mod <- mod; rv$jsdm_st <- "done"
-
+        
         # Populate parameter selector from actual model output
         if(!is.null(mod$mcmc.sp)&&length(mod$mcmc.sp)>0){
           pars <- colnames(mod$mcmc.sp[[1]])
@@ -1520,11 +1523,11 @@ server <- function(input, output, session) {
         showNotification("\u2713 jSDM done!",type="message")
         incProgress(0.8)
       },error=function(e){rv$jsdm_st<-"error"
-        logj(paste0("\u2715 ",e$message),col=RED)
-        showNotification(paste("jSDM error:",e$message),type="error")})
+      logj(paste0("\u2715 ",e$message),col=RED)
+      showNotification(paste("jSDM error:",e$message),type="error")})
     })
   })
-
+  
   # ── Convergence: trace ────────────────────────────────────
   # Key fix: use isolate + reactive on input$conv_sp to force rerender
   output$plot_trace <- renderPlot({
@@ -1540,7 +1543,7 @@ server <- function(input, output, session) {
     ggplot(df,aes(iter,value))+geom_line(color=ACC,linewidth=.35)+
       labs(title=paste("Trace —",par,"—",sp),x="Iteration",y="Value")+gg_dark()
   },bg="transparent")
-
+  
   output$plot_density <- renderPlot({
     req(rv$jsdm_mod)
     sp <- input$conv_sp; par <- input$conv_par
@@ -1556,7 +1559,7 @@ server <- function(input, output, session) {
       geom_vline(xintercept=mean(ch),color=AMB,linetype="dashed",linewidth=.8)+
       labs(title=paste("Posterior density —",par),x="Value",y="Density")+gg_dark()
   },bg="transparent")
-
+  
   # ── Residual correlations ─────────────────────────────────
   output$plot_res_cor <- renderPlot({
     req(rv$jsdm_mod)
@@ -1565,7 +1568,7 @@ server <- function(input, output, session) {
     tryCatch(jSDM::plot_residual_cor(rv$jsdm_mod,tl.cex=1),
              error=function(e){plot.new();text(0.5,0.5,paste("Error:",e$message),col=TXT)})
   },bg=CARD)
-
+  
   # ── Species responses — reacts to resp_sp input ───────────
   output$plot_sp_resp <- renderPlot({
     req(rv$jsdm_mod, rv$jsdm_data)
@@ -1593,7 +1596,7 @@ server <- function(input, output, session) {
       p <- p+geom_errorbar(aes(ymin=lo,ymax=hi),width=.25,color=TXT,linewidth=.5)
     p
   },bg="transparent")
-
+  
   # ── Predicted theta ───────────────────────────────────────
   output$plot_theta <- renderPlot({
     req(rv$jsdm_mod)
@@ -1604,7 +1607,7 @@ server <- function(input, output, session) {
       geom_histogram(bins=60,fill=ACC,color=D,alpha=.85)+
       labs(title="Predicted occurrence probability \u03b8",x="\u03b8",y="Count")+gg_dark()
   },bg="transparent")
-
+  
   # ── Latent variable site scores ──────────────────────────
   # ── Latent variable spatial maps ──────────────────────────
   # "Sites" here = raster grid cells (not GBIF points).
@@ -1616,31 +1619,31 @@ server <- function(input, output, session) {
     req(rv$jsdm_mod, rv$jsdm_data)
     mod     <- rv$jsdm_mod
     coords  <- rv$jsdm_data$coords          # data.frame: x, y (WGS84)
-
+    
     lv1_mat <- tryCatch(as.matrix(mod$mcmc.latent[["lv_1"]]), error=function(e) NULL)
     lv2_mat <- tryCatch(as.matrix(mod$mcmc.latent[["lv_2"]]), error=function(e) NULL)
-
+    
     if (is.null(lv1_mat) || ncol(lv1_mat) == 0) {
       return(ggplot() +
-        annotate("text", x=0.5, y=0.5,
-                 label="Latent variable data unavailable.\nRun jSDM model first.",
-                 color=TXT, size=4, hjust=0.5) +
-        theme_void() + theme(plot.background=element_rect(fill=CARD, color=NA)))
+               annotate("text", x=0.5, y=0.5,
+                        label="Latent variable data unavailable.\nRun jSDM model first.",
+                        color=TXT, size=4, hjust=0.5) +
+               theme_void() + theme(plot.background=element_rect(fill=CARD, color=NA)))
     }
-
+    
     # Number of sites must match number of columns in mcmc.latent
     W1 <- colMeans(lv1_mat)
     if (length(W1) != nrow(coords)) {
       return(ggplot() +
-        annotate("text", x=0.5, y=0.5,
-                 label=paste0("Dimension mismatch: ", length(W1),
-                              " site scores vs ", nrow(coords), " grid cells."),
-                 color=TXT, size=3.5, hjust=0.5) +
-        theme_void() + theme(plot.background=element_rect(fill=CARD, color=NA)))
+               annotate("text", x=0.5, y=0.5,
+                        label=paste0("Dimension mismatch: ", length(W1),
+                                     " site scores vs ", nrow(coords), " grid cells."),
+                        color=TXT, size=3.5, hjust=0.5) +
+               theme_void() + theme(plot.background=element_rect(fill=CARD, color=NA)))
     }
-
+    
     df <- data.frame(lon=coords$x, lat=coords$y, W1=W1)
-
+    
     if (!is.null(lv2_mat) && ncol(lv2_mat) == length(W1)) {
       # Two latent variables: side-by-side spatial maps
       W2 <- colMeans(lv2_mat)
@@ -1677,7 +1680,7 @@ server <- function(input, output, session) {
         gg_dark()
     }
   }, bg="transparent")
-
+  
   # ── Species biplot (lambda loadings) ──────────────────────
   # In jSDM, mcmc.sp[[j]] has columns: intercept, betas, lambda_1, lambda_2, ...
   # Rows = MCMC samples. Posterior mean lambda = colMeans of those columns.
@@ -1688,7 +1691,7 @@ server <- function(input, output, session) {
     n_sp  <- length(spp)
     # +1 for intercept
     n_beta <- length(rv$jsdm_data$env_vars) + 1
-
+    
     extract_lambda <- function(col_offset) {
       tryCatch(
         sapply(seq_len(n_sp), function(j) {
@@ -1699,26 +1702,26 @@ server <- function(input, output, session) {
         }),
         error=function(e) NULL)
     }
-
+    
     L1 <- extract_lambda(1)
     L2 <- extract_lambda(2)
-
+    
     if (is.null(L1) || all(is.na(L1)) || is.null(L2) || all(is.na(L2))) {
       return(ggplot() +
-        annotate("text", x=0.5, y=0.5,
-                 label="Need >= 2 latent variables for species biplot.
+               annotate("text", x=0.5, y=0.5,
+                        label="Need >= 2 latent variables for species biplot.
 Set 'Latent vars' >= 2 before running jSDM.",
-                 color=TXT, size=4, hjust=0.5) +
-        theme_void() + theme(plot.background=element_rect(fill=CARD, color=NA)))
+                        color=TXT, size=4, hjust=0.5) +
+               theme_void() + theme(plot.background=element_rect(fill=CARD, color=NA)))
     }
-
+    
     df <- data.frame(species=spp, L1=L1, L2=L2,
                      dist=sqrt(L1^2 + L2^2)) %>%
       filter(!is.na(L1), !is.na(L2))
-
+    
     # Symmetric axis limits with 20% padding for labels
     lim <- max(abs(c(df$L1, df$L2)), na.rm=TRUE) * 1.3
-
+    
     ggplot(df) +
       # Reference cross at origin
       geom_hline(yintercept=0, color=BRD, linewidth=.5, linetype="dashed") +
@@ -1742,7 +1745,7 @@ Set 'Latent vars' >= 2 before running jSDM.",
       gg_dark() +
       theme(plot.subtitle=element_text(color=MUT, size=7.5))
   }, bg="transparent")
-
+  
   # ── Deviance ──────────────────────────────────────────────
   output$plot_deviance <- renderPlot({
     req(rv$jsdm_mod)
@@ -1752,10 +1755,10 @@ Set 'Latent vars' >= 2 before running jSDM.",
     }, error=function(e) NULL)
     if (is.null(dev) || !length(dev)) {
       return(ggplot() +
-        annotate("text", x=0.5, y=0.5,
-                 label="Deviance data unavailable.",
-                 color=TXT, size=4) +
-        theme_void() + theme(plot.background=element_rect(fill=CARD, color=NA)))
+               annotate("text", x=0.5, y=0.5,
+                        label="Deviance data unavailable.",
+                        color=TXT, size=4) +
+               theme_void() + theme(plot.background=element_rect(fill=CARD, color=NA)))
     }
     df <- data.frame(iter=seq_along(dev), deviance=dev)
     ggplot(df, aes(iter, deviance)) +
@@ -1765,31 +1768,31 @@ Set 'Latent vars' >= 2 before running jSDM.",
       labs(title="Deviance trace (loess trend in cyan)",
            x="MCMC sample", y="Deviance") + gg_dark()
   }, bg="transparent")
-
+  
   # ══════════════════════════════════════════════════════════
   # DATA DOWNLOADS
   # ══════════════════════════════════════════════════════════
-
+  
   output$dl_occ <- downloadHandler(
     filename = function() "biohex_occurrences.csv",
     content  = function(file) { req(rv$occ_clean); write.csv(rv$occ_clean,file,row.names=FALSE) })
-
+  
   output$dl_hex_csv <- downloadHandler(
     filename = function() "biohex_diversity.csv",
     content  = function(file) {
       req(rv$polygons)
       as.data.frame(rv$polygons) %>% select(-geometry) %>% write.csv(file,row.names=FALSE) })
-
+  
   output$dl_jsdm <- downloadHandler(
     filename = function() "biohex_jsdm_model.rds",
     content  = function(file) { req(rv$jsdm_mod); saveRDS(rv$jsdm_mod, file) })
-
+  
   # ── Per-plot download handlers ─────────────────────────────
   save_gg <- function(file, p, w=10, h=7, dpi=250) {
     if (is.null(p)) return()
     ggplot2::ggsave(file, p, width=w, height=h, dpi=dpi, bg=CARD)
   }
-
+  
   output$dl_plot_trace <- downloadHandler(
     filename=function() "jsdm_trace.png",
     content=function(file) {
@@ -1799,11 +1802,11 @@ Set 'Latent vars' >= 2 before running jSDM.",
       ch  <- as.numeric(mod$mcmc.sp[[idx]][,input$conv_par])
       df  <- data.frame(iter=seq_along(ch), value=ch)
       save_gg(file,
-        ggplot(df,aes(iter,value))+geom_line(color=ACC,linewidth=.35)+
-          labs(title=paste("Trace —",input$conv_par,"—",input$conv_sp),
-               x="Iteration",y="Value")+gg_dark(), h=5)
+              ggplot(df,aes(iter,value))+geom_line(color=ACC,linewidth=.35)+
+                labs(title=paste("Trace —",input$conv_par,"—",input$conv_sp),
+                     x="Iteration",y="Value")+gg_dark(), h=5)
     })
-
+  
   output$dl_plot_density <- downloadHandler(
     filename=function() "jsdm_posterior_density.png",
     content=function(file) {
@@ -1813,12 +1816,12 @@ Set 'Latent vars' >= 2 before running jSDM.",
       ch  <- as.numeric(mod$mcmc.sp[[idx]][,input$conv_par])
       df  <- data.frame(value=ch)
       save_gg(file,
-        ggplot(df,aes(value))+geom_density(fill=VIO,color=NA,alpha=.75)+
-          geom_vline(xintercept=mean(ch),color=AMB,linetype="dashed",linewidth=.8)+
-          labs(title=paste("Posterior density —",input$conv_par),x="Value",y="Density")+
-          gg_dark(), h=5)
+              ggplot(df,aes(value))+geom_density(fill=VIO,color=NA,alpha=.75)+
+                geom_vline(xintercept=mean(ch),color=AMB,linetype="dashed",linewidth=.8)+
+                labs(title=paste("Posterior density —",input$conv_par),x="Value",y="Density")+
+                gg_dark(), h=5)
     })
-
+  
   output$dl_plot_rescor <- downloadHandler(
     filename=function() "jsdm_residual_correlations.png",
     content=function(file) {
@@ -1831,10 +1834,10 @@ Set 'Latent vars' >= 2 before running jSDM.",
                error=function(e) { plot.new(); text(0.5,0.5,"Error",col=TXT) })
       par(old); dev.off()
     })
-
+  
   output$dl_plot_resp <- downloadHandler(
     filename=function() paste0("jsdm_response_",
-                                gsub(" ","_",input$resp_sp %||% "species"),".png"),
+                               gsub(" ","_",input$resp_sp %||% "species"),".png"),
     content=function(file) {
       req(rv$jsdm_mod, rv$jsdm_data, input$resp_sp)
       mod <- rv$jsdm_mod; sp <- input$resp_sp
@@ -1847,27 +1850,27 @@ Set 'Latent vars' >= 2 before running jSDM.",
       df <- tibble::tibble(param=names(betas),mean=as.numeric(betas),
                            lo=ci[1,],hi=ci[2,],dir=ifelse(mean>0,"pos","neg"))
       save_gg(file,
-        ggplot(df,aes(x=reorder(param,mean),y=mean,fill=dir))+
-          geom_col(alpha=.85)+
-          scale_fill_manual(values=c(pos=GRN,neg=RED),guide="none")+
-          geom_errorbar(aes(ymin=lo,ymax=hi),width=.25,color=TXT,linewidth=.5)+
-          coord_flip()+
-          labs(title=paste("Beta coefficients —",sp),
-               subtitle="Posterior mean ± 95% CI",x=NULL,y="Posterior mean")+
-          gg_dark(),
-        h=max(5, n_e*0.32))
+              ggplot(df,aes(x=reorder(param,mean),y=mean,fill=dir))+
+                geom_col(alpha=.85)+
+                scale_fill_manual(values=c(pos=GRN,neg=RED),guide="none")+
+                geom_errorbar(aes(ymin=lo,ymax=hi),width=.25,color=TXT,linewidth=.5)+
+                coord_flip()+
+                labs(title=paste("Beta coefficients —",sp),
+                     subtitle="Posterior mean ± 95% CI",x=NULL,y="Posterior mean")+
+                gg_dark(),
+              h=max(5, n_e*0.32))
     })
-
+  
   output$dl_plot_theta <- downloadHandler(
     filename=function() "jsdm_theta.png",
     content=function(file) {
       req(rv$jsdm_mod)
       df <- data.frame(theta=as.vector(rv$jsdm_mod$theta_latent))
       save_gg(file,
-        ggplot(df,aes(theta))+geom_histogram(bins=60,fill=ACC,color=D,alpha=.85)+
-          labs(title="Predicted occupancy θ",x="θ",y="Count")+gg_dark(), h=5)
+              ggplot(df,aes(theta))+geom_histogram(bins=60,fill=ACC,color=D,alpha=.85)+
+                labs(title="Predicted occupancy θ",x="θ",y="Count")+gg_dark(), h=5)
     })
-
+  
   output$dl_plot_latent <- downloadHandler(
     filename=function() "jsdm_latent_spatial.png",
     content=function(file) {
@@ -1889,7 +1892,7 @@ Set 'Latent vars' >= 2 before running jSDM.",
       }
       save_gg(file, p, w=12, h=6)
     })
-
+  
   output$dl_plot_dev <- downloadHandler(
     filename=function() "jsdm_deviance.png",
     content=function(file) {
@@ -1897,11 +1900,11 @@ Set 'Latent vars' >= 2 before running jSDM.",
       dev <- as.numeric(as.matrix(rv$jsdm_mod$mcmc.Deviance)[,1])
       df  <- data.frame(iter=seq_along(dev), deviance=dev)
       save_gg(file,
-        ggplot(df,aes(iter,deviance))+geom_line(color=AMB,linewidth=.4)+
-          geom_smooth(method="loess",formula=y~x,color=ACC,se=FALSE,linewidth=.8)+
-          labs(title="Deviance trace",x="MCMC sample",y="Deviance")+gg_dark(), h=5)
+              ggplot(df,aes(iter,deviance))+geom_line(color=AMB,linewidth=.4)+
+                geom_smooth(method="loess",formula=y~x,color=ACC,se=FALSE,linewidth=.8)+
+                labs(title="Deviance trace",x="MCMC sample",y="Deviance")+gg_dark(), h=5)
     })
-
+  
   output$dl_plot_biplot <- downloadHandler(
     filename=function() "jsdm_species_biplot.png",
     content=function(file) {
@@ -1913,20 +1916,20 @@ Set 'Latent vars' >= 2 before running jSDM.",
       df  <- data.frame(species=spp,L1=L1,L2=L2,dist=sqrt(L1^2+L2^2))
       lim <- max(abs(c(df$L1,df$L2)),na.rm=TRUE)*1.3
       save_gg(file,
-        ggplot(df)+
-          geom_hline(yintercept=0,color=BRD,linewidth=.5,linetype="dashed")+
-          geom_vline(xintercept=0,color=BRD,linewidth=.5,linetype="dashed")+
-          geom_segment(aes(x=0,y=0,xend=L1,yend=L2,color=dist),
-                       arrow=arrow(length=unit(0.2,"cm"),type="closed"),
-                       linewidth=0.75,alpha=0.85)+
-          geom_text(aes(x=L1*1.18,y=L2*1.18,label=species,color=dist),
-                    size=2.8,fontface="italic",hjust=0.5)+
-          annotate("point",x=0,y=0,color=TXT,size=2)+
-          scale_color_viridis_c(option="plasma",guide="none")+
-          coord_equal(xlim=c(-lim,lim),ylim=c(-lim,lim))+
-          labs(title="Species biplot — latent factor loadings",
-               x="λ₁",y="λ₂")+gg_dark(),
-        w=10, h=10)
+              ggplot(df)+
+                geom_hline(yintercept=0,color=BRD,linewidth=.5,linetype="dashed")+
+                geom_vline(xintercept=0,color=BRD,linewidth=.5,linetype="dashed")+
+                geom_segment(aes(x=0,y=0,xend=L1,yend=L2,color=dist),
+                             arrow=arrow(length=unit(0.2,"cm"),type="closed"),
+                             linewidth=0.75,alpha=0.85)+
+                geom_text(aes(x=L1*1.18,y=L2*1.18,label=species,color=dist),
+                          size=2.8,fontface="italic",hjust=0.5)+
+                annotate("point",x=0,y=0,color=TXT,size=2)+
+                scale_color_viridis_c(option="plasma",guide="none")+
+                coord_equal(xlim=c(-lim,lim),ylim=c(-lim,lim))+
+                labs(title="Species biplot — latent factor loadings",
+                     x="λ₁",y="λ₂")+gg_dark(),
+              w=10, h=10)
     })
 }
 
