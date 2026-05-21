@@ -230,36 +230,23 @@ resolve_taxa <- function(q) {
     rank <- NA_character_
     lbl  <- x
 
-    # Step 1 — name_backbone
-    bb <- tryCatch(rgbif::name_backbone(name=x, verbose=FALSE),
+    # name_backbone
+    safe_backbone <- function(x, tries = 5) {
+      for(i in seq_len(tries)) {
+        out <- try(rgbif::name_backbone(x), silent = TRUE)
+        if(!inherits(out, "try-error")) return(out)
+        Sys.sleep(1)
+      }
+      stop("Failed after retries")
+    } # To circumvent "Error in the HTTP2 framing layer [api.gbif.org]"
+    
+    bb <- tryCatch(safe_backbone(x),
                    error=function(e) NULL)
     if (!is.null(bb) && !isTRUE(bb$matchType == "NONE")) {
       rank <- tolower(bb$rank %||% "species")
       key  <- as.integer(bb$usageKey)
       lbl  <- bb$canonicalName %||% x
       message(sprintf("  backbone: '%s' -> rank=%s key=%s", x, rank, key))
-    }
-
-    # Step 2 — if single word and backbone didn't return a higher-taxon rank,
-    #           try name_suggest (better for clades like Serpentes, Viperidae)
-    is_single_word <- length(strsplit(trimws(x), " ")[[1]]) == 1
-    if (is_single_word && (is.na(key) || !rank %in% HIGHER_RANKS)) {
-      sg <- tryCatch(rgbif::name_suggest(q=x, limit=10)$data,
-                     error=function(e) NULL)
-      if (!is.null(sg) && nrow(sg) > 0) {
-        # Prefer exact canonical match in a higher rank
-        exact_higher <- sg[tolower(sg$canonicalName) == tolower(x) &
-                             tolower(sg$rank) %in% HIGHER_RANKS, ]
-        hit <- if (nrow(exact_higher) > 0) exact_higher[1, ] else sg[1, ]
-        rank2 <- tolower(hit$rank %||% "species")
-        key2  <- as.integer(hit$key)
-        if (!is.na(key2)) {
-          key  <- key2
-          rank <- rank2
-          lbl  <- hit$canonicalName %||% x
-          message(sprintf("  suggest:  '%s' -> rank=%s key=%s", x, rank, key))
-        }
-      }
     }
 
     if (is.na(key)) {
@@ -418,27 +405,59 @@ run_vif <- function(env_rast, thr=10) {
        vif_table=as.data.frame(vif_res@results))
 }
 
-prepare_jsdm <- function(occ_df, env_rast) {
+# prepare_jsdm ──────────────────────────────────────────────
+# site_size_m controls the aggregation grid for jSDM "sites".
+# If NULL / 0, uses the native env raster resolution (~9 km at 5').
+# Otherwise, builds a custom grid of approximately site_size_m metres
+# (converted to degrees at the study centroid) and aggregates both
+# env values (mean) and occurrences (presence/absence) into it.
+prepare_jsdm <- function(occ_df, env_rast, site_size_m=NULL) {
+
+  use_custom_grid <- !is.null(site_size_m) && site_size_m > 0
+
+  if (use_custom_grid) {
+    # Convert metres to approximate degrees (WGS84)
+    # 1 degree latitude ≈ 111 000 m everywhere
+    # 1 degree longitude ≈ 111 000 * cos(lat) — use study centroid
+    ext_r   <- ext(env_rast)
+    lat_ctr <- (ext_r$ymin + ext_r$ymax) / 2
+    deg_lat <- site_size_m / 111000
+    deg_lon <- site_size_m / (111000 * cos(lat_ctr * pi / 180))
+
+    message(sprintf("Custom site grid: %.0f m → %.4f° lat × %.4f° lon",
+                    site_size_m, deg_lat, deg_lon))
+
+    # Build a SpatRaster at the custom resolution covering env extent
+    site_rast <- rast(ext=ext_r, resolution=c(deg_lon, deg_lat),
+                      crs=crs(env_rast))
+    site_rast[] <- seq_len(ncell(site_rast))
+    names(site_rast) <- "site_id"
+
+    # Aggregate env layers to the coarser grid (mean per site cell)
+    env_agg <- resample(env_rast, site_rast, method="average")
+    grid_rast <- site_rast
+  } else {
+    env_agg   <- env_rast
+    grid_rast <- env_rast[[1]]
+    grid_rast[] <- seq_len(ncell(grid_rast))
+    names(grid_rast) <- "site_id"
+  }
 
   # ── 1. Env data frame (non-NA cells only) ───────────────────
-  edf      <- as.data.frame(env_rast, xy=TRUE, na.rm=TRUE)
-  env_vars <- names(env_rast)
+  edf      <- as.data.frame(env_agg, xy=TRUE, na.rm=TRUE)
+  env_vars <- names(env_agg)
 
-  # Sanitise column names: jSDM formula parsing breaks on special
-  # characters (dots, hyphens, spaces). Replace with underscores.
   safe_names <- make.names(env_vars, unique=TRUE)
   names(edf)[match(env_vars, names(edf))] <- safe_names
-  env_vars <- safe_names   # use safe names from here on
+  env_vars <- safe_names
 
-  # Drop any remaining all-NA columns (can happen if a layer
-  # had no overlap with the study extent after resample)
   ok_cols  <- safe_names[sapply(safe_names, function(v) !all(is.na(edf[[v]])))]
   if (!length(ok_cols)) stop("All environmental columns are NA after masking.")
   edf      <- edf[, c("x", "y", ok_cols), drop=FALSE]
   env_vars <- ok_cols
 
-  # ── 2. Cell IDs via cellFromXY ───────────────────────────────
-  edf$cell_id <- cellFromXY(env_rast, as.matrix(edf[, c("x","y")]))
+  # ── 2. Site IDs for each env row ────────────────────────────
+  edf$cell_id <- cellFromXY(env_agg, as.matrix(edf[, c("x","y")]))
 
   # ── 3. Presence-absence matrix ───────────────────────────────
   spp <- sort(unique(occ_df$species[!is.na(occ_df$species) & occ_df$species != ""]))
@@ -449,32 +468,40 @@ prepare_jsdm <- function(occ_df, env_rast) {
                   c("decimalLongitude","decimalLatitude"), drop=FALSE]
     pts <- pts[complete.cases(pts), , drop=FALSE]
     if (!nrow(pts)) next
-    occ_cells <- cellFromXY(env_rast, as.matrix(pts))
+    # Map occurrence points into the (possibly coarser) site grid
+    occ_cells <- cellFromXY(env_agg, as.matrix(pts))
     occ_cells <- unique(occ_cells[!is.na(occ_cells)])
     if (!length(occ_cells)) next
     hit_rows  <- which(edf$cell_id %in% occ_cells)
     if (length(hit_rows)) pa[hit_rows, sp] <- 1L
   }
 
-  # Drop species with zero presences (can't be modelled)
+  # Drop species with zero presences
   n_pres  <- colSums(pa)
   keep_sp <- names(n_pres[n_pres > 0])
-  if (!length(keep_sp)) stop("No species have any presences in the raster grid cells.")
+  if (!length(keep_sp)) stop("No species have any presences in the site grid.")
   dropped_sp <- setdiff(spp, keep_sp)
   if (length(dropped_sp))
-    message("Dropping ", length(dropped_sp),
-            " species with 0 presences in env grid: ",
+    message("Dropping ", length(dropped_sp), " species with 0 presences: ",
             paste(head(dropped_sp, 5), collapse=", "),
             if (length(dropped_sp)>5) "..." else "")
   pa  <- pa[, keep_sp, drop=FALSE]
   spp <- keep_sp
 
-  list(pa      = pa,
-       env     = as.matrix(edf[, env_vars, drop=FALSE]),
-       coords  = edf[, c("x","y")],
-       env_vars= env_vars,
-       species = spp,
-       cell_id = edf$cell_id)
+  n_sites   <- nrow(edf)
+  site_desc <- if (use_custom_grid)
+    sprintf("%.0f m custom grid (%d sites)", site_size_m, n_sites)
+  else
+    sprintf("native env resolution (%d sites)", n_sites)
+  message("Site grid: ", site_desc)
+
+  list(pa        = pa,
+       env       = as.matrix(edf[, env_vars, drop=FALSE]),
+       coords    = edf[, c("x","y")],
+       env_vars  = env_vars,
+       species   = spp,
+       cell_id   = edf$cell_id,
+       site_desc = site_desc)
 }
 
 run_jsdm_model <- function(jd, n_iter, n_burnin, n_thin, n_latent) {
@@ -559,29 +586,35 @@ ui <- page_navbar(
 
   # ── TAB 1: Data ───────────────────────────────────────────
   nav_panel("01 \u00b7 Data", icon=bs_icon("cloud-download"),
+    tags$style(HTML("
+      .scroll-legend {
+        max-height: 250px;
+        overflow-y: auto;
+      }
+    ")),
     layout_sidebar(fillable=TRUE,
       sidebar=sidebar(width=310, bg=PANEL,
 
         sdiv("Taxon query"),
         textAreaInput("taxon_query", "Species / higher taxon",
-          value="Vipera ammodytes\nNatrix natrix\nLacerta viridis", rows=5,
+          value="Testudines\nCaudata\nSquamata", rows=5,
           placeholder="One per line or comma-separated\nHigher taxa auto-expand to species"),
 
         sdiv("Geographic scope"),
         radioButtons("geo_mode", NULL,
           choices=c("Countries"="country","Custom WKT"="wkt"), selected="country", inline=TRUE),
         conditionalPanel("input.geo_mode=='country'",
-          selectizeInput("countries", NULL, multiple=TRUE, selected="Greece",
-            choices=sort(tryCatch(ne_countries(scale="medium",returnclass="sf")$name, error=function(e) "Greece")),
+          selectizeInput("countries", NULL, multiple=TRUE, selected="Italy",
+            choices=sort(tryCatch(ne_countries(scale="medium",returnclass="sf")$name, error=function(e) "Italy")),
             options=list(placeholder="Select countries\u2026"))),
         conditionalPanel("input.geo_mode=='wkt'",
           textAreaInput("wkt_input", NULL, rows=3, placeholder="POLYGON((\u2026))")),
 
         sdiv("Filters"),
         fluidRow(
-          column(6, numericInput("yr_min","Year from",1980,1800,2025)),
-          column(6, numericInput("yr_max","Year to",  2024,1800,2025))),
-        numericInput("max_unc","Max coord. uncertainty (m)",5000,100,50000,100),
+          column(6, numericInput("yr_min","Year from",2000,1800,2026)),
+          column(6, numericInput("yr_max","Year to",  2024,1800,2026))),
+        numericInput("max_unc","Max coord. uncertainty (m)",1500,100,50000,100),
         checkboxInput("run_cc","Run CoordinateCleaner",TRUE),
 
         sdiv("GBIF credentials"),
@@ -607,8 +640,19 @@ ui <- page_navbar(
       card(card_header(bs_icon("terminal")," Activity log"),
            div(id="data_log", class="log-box", "Waiting\u2026")),
       card(full_screen=TRUE,
-           card_header(bs_icon("map")," Occurrence preview"),
-           withSpinner(leafletOutput("occ_map",height="350px"),color=ACC,type=6))
+           card_header(
+             class="d-flex justify-content-between align-items-center",
+             span(bs_icon("map")," Occurrence preview"),
+             div(style="display:flex;align-items:center;gap:8px;",
+               radioButtons("occ_color_by","",
+                 choices=c("Species"="species","Genus"="genus"),
+                 selected="species",inline=TRUE),
+               downloadButton("dl_occ_map","",class="btn-ghost btn-sm",
+                 icon=icon("download"),title="Download map as PNG"))
+           ),
+           withSpinner(leafletOutput("occ_map",height="350px"),color=ACC,type=6),
+           tags$style(HTML(".leaflet-control-layers,.leaflet .legend{max-height:220px;overflow-y:auto;}"))
+      )
     )
   ),
 
@@ -637,7 +681,11 @@ ui <- page_navbar(
       layout_columns(col_widths=c(8,4),
         card(full_screen=TRUE,
              card_header(class="d-flex justify-content-between align-items-center",
-                         span(bs_icon("hexagon")," H3 diversity map"), uiOutput("hex_metric_badge")),
+               span(bs_icon("hexagon")," H3 diversity map"),
+               div(style="display:flex;align-items:center;gap:8px;",
+                 uiOutput("hex_metric_badge"),
+                 downloadButton("dl_hex_map","",class="btn-ghost btn-sm",
+                   icon=icon("download"),title="Download map as PNG"))),
              withSpinner(leafletOutput("hex_map",height="510px"),color=ACC,type=6)),
         card(
           card_header(bs_icon("list-ul")," Species in selected hexagon"),
@@ -674,6 +722,17 @@ ui <- page_navbar(
         # Step 3 ─────────────────────────────────────────────
         uiOutput("env_sel_ui"),
 
+        sdiv("Site size"),
+        numericInput("site_size_m", "Site size (metres)",
+                     value=0, min=0, max=500000, step=500),
+        div(style=paste0("font-size:.73rem;color:",MUT,";margin-bottom:4px;"),
+          "0 = use native env. raster resolution (~9 km at 5′). ",
+          "Set a larger value (e.g. 20 000 m) to aggregate occurrences into coarser sites, ",
+          "increasing co-occurrence signal for sparse data. ",
+          "Recommended range for reptile atlas data: 5 000 – 50 000 m."
+        ),
+        uiOutput("site_size_info_ui"),
+
         sdiv("MCMC settings"),
         fluidRow(
           column(6,numericInput("n_iter",  "Iterations",10000,1000)),
@@ -694,81 +753,113 @@ ui <- page_navbar(
         uiOutput("jkpi_sites"), uiOutput("jkpi_spp"), uiOutput("jkpi_vars")),
 
       navset_card_tab(
+
         nav_panel("Convergence",
           layout_columns(col_widths=c(3,9),
             card(card_header("Select"),
                  selectInput("conv_sp",  "Species",   choices=NULL),
                  selectInput("conv_par", "Parameter", choices=NULL)),
             layout_columns(col_widths=c(12),
-              withSpinner(plotOutput("plot_trace",  height="200px"),color=ACC,type=6),
-              withSpinner(plotOutput("plot_density",height="200px"),color=ACC,type=6))
+              card(full_screen=TRUE,
+                card_header(class="d-flex justify-content-between align-items-center",
+                  span("Trace"),
+                  downloadButton("dl_plot_trace","",class="btn-ghost btn-sm",icon=icon("download"))),
+                withSpinner(plotOutput("plot_trace",  height="200px"),color=ACC,type=6)),
+              card(full_screen=TRUE,
+                card_header(class="d-flex justify-content-between align-items-center",
+                  span("Posterior density"),
+                  downloadButton("dl_plot_density","",class="btn-ghost btn-sm",icon=icon("download"))),
+                withSpinner(plotOutput("plot_density",height="200px"),color=ACC,type=6)))
           )
         ),
+
         nav_panel("Residual correlations",
-          withSpinner(plotOutput("plot_res_cor",height="480px"),color=ACC,type=6)),
+          card(full_screen=TRUE,
+            card_header(class="d-flex justify-content-between align-items-center",
+              span(bs_icon("grid")," Residual correlation matrix"),
+              div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand for detail"),
+                  downloadButton("dl_plot_rescor","",class="btn-ghost btn-sm",icon=icon("download")))),
+            withSpinner(plotOutput("plot_res_cor",height="600px"),color=ACC,type=6))
+        ),
+
         nav_panel("Species responses",
           layout_columns(col_widths=c(3,9),
             card(card_header("Select species"),
                  selectInput("resp_sp","Species",choices=NULL)),
-            withSpinner(plotOutput("plot_sp_resp",height="420px"),color=ACC,type=6))
+            card(full_screen=TRUE,
+              card_header(class="d-flex justify-content-between align-items-center",
+                span("Beta coefficients ± 95% CI"),
+                div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand"),
+                    downloadButton("dl_plot_resp","",class="btn-ghost btn-sm",icon=icon("download")))),
+              withSpinner(plotOutput("plot_sp_resp",height="460px"),color=ACC,type=6)))
         ),
+
         nav_panel("Predicted theta",
-          withSpinner(plotOutput("plot_theta",height="360px"),color=ACC,type=6)),
+          card(full_screen=TRUE,
+            card_header(class="d-flex justify-content-between align-items-center",
+              span("Predicted occupancy θ"),
+              downloadButton("dl_plot_theta","",class="btn-ghost btn-sm",icon=icon("download"))),
+            withSpinner(plotOutput("plot_theta",height="380px"),color=ACC,type=6))
+        ),
+
         nav_panel("Latent variables",
-          withSpinner(plotOutput("plot_latent",height="360px"),color=ACC,type=6)),
+          card(full_screen=TRUE,
+            card_header(class="d-flex justify-content-between align-items-center",
+              span("Spatial latent variable scores"),
+              div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand"),
+                  downloadButton("dl_plot_latent","",class="btn-ghost btn-sm",icon=icon("download")))),
+            withSpinner(plotOutput("plot_latent",height="500px"),color=ACC,type=6))
+        ),
+
         nav_panel("Deviance",
-          withSpinner(plotOutput("plot_deviance",height="360px"),color=ACC,type=6)),
+          card(full_screen=TRUE,
+            card_header(class="d-flex justify-content-between align-items-center",
+              span("Deviance trace"),
+              downloadButton("dl_plot_dev","",class="btn-ghost btn-sm",icon=icon("download"))),
+            withSpinner(plotOutput("plot_deviance",height="360px"),color=ACC,type=6))
+        ),
+
         nav_panel("Species biplot",
-          tags$p(style=paste0("color:",MUT,";font-size:.8rem;margin:.5rem 0;"),
-            "Arrows = species latent factor loadings. Species pointing in the same direction ",
-            "and far from the origin are positively correlated in occurrence, ",
-            "beyond what environment explains."),
-          withSpinner(plotOutput("plot_sp_biplot",height="500px"),color=ACC,type=6))
+          card(full_screen=TRUE,
+            card_header(class="d-flex justify-content-between align-items-center",
+              span("Species latent factor loadings (λ₁ vs λ₂)"),
+              div(tags$small(style=paste0("color:",MUT,";margin-right:8px;"),"⛶ expand"),
+                  downloadButton("dl_plot_biplot","",class="btn-ghost btn-sm",icon=icon("download")))),
+            div(style=paste0("color:",MUT,";font-size:.76rem;padding:.3rem .8rem 0;"),
+              "Same direction + far from origin = positively correlated beyond environment."),
+            withSpinner(plotOutput("plot_sp_biplot",height="600px"),color=ACC,type=6))
+        )
       )
     )
   ),
 
-  # ── TAB 4: Export ─────────────────────────────────────────
-  nav_panel("04 \u00b7 Export", icon=bs_icon("download"),
-    layout_columns(col_widths=c(7,5),
-      # Left: table
-      card(card_header(bs_icon("table")," Hexagon diversity table"),
-           withSpinner(DTOutput("hex_table"),color=ACC,type=6)),
-      # Right: controls + preview
-      layout_columns(col_widths=c(12),
-        card(
-          card_header(bs_icon("image")," PNG map export"),
-          layout_columns(col_widths=c(6,6),
-            selectInput("exp_est","Metric",  choices=ESTIMATOR_CH),
-            selectInput("exp_pal","Palette", choices=PALETTE_CH)),
-          selectInput("exp_bg","Background",
-            choices=c("None"="none","Country borders"="borders")),
+  # ── TAB 4: Data ────────────────────────────────────────────
+  nav_panel("04 \u00b7 Data", icon=bs_icon("file-earmark-arrow-down"),
+    layout_columns(col_widths=c(12),
+      card(
+        card_header(bs_icon("file-earmark-arrow-down")," Downloads"),
+        card_body(
+          tags$p(style=paste0("color:",MUT,";font-size:.82rem;"),
+            "Download your occurrence data. ",
+            "All map and plot downloads are available via the \u2913 buttons ",
+            "directly on each figure in the tabs above."),
           layout_columns(col_widths=c(4,4,4),
-            numericInput("exp_w",  "Width (in)", 10),
-            numericInput("exp_h",  "Height (in)",7),
-            numericInput("exp_dpi","DPI",        300)),
-          div(style="margin-top:14px;",
-            actionButton("btn_preview_map","Preview map",
-              class="btn-ghost w-100",icon=icon("eye"))
-          ),
-          div(style="margin-top:8px;",
-            uiOutput("export_preview")
-          ),
-          div(style="margin-top:10px;",
-            downloadButton("dl_png","Download PNG",class="btn-green w-100")
+            div(
+              tags$b(style=paste0("color:",TXT,";font-size:.78rem;display:block;margin-bottom:6px;"),
+                     "Occurrences"),
+              downloadButton("dl_occ","Download CSV",class="btn-green w-100")
+            ),
+            div(
+              tags$b(style=paste0("color:",TXT,";font-size:.78rem;display:block;margin-bottom:6px;"),
+                     "jSDM model object"),
+              downloadButton("dl_jsdm","Download RDS",class="btn-ghost w-100")
+            ),
+            div(
+              tags$b(style=paste0("color:",TXT,";font-size:.78rem;display:block;margin-bottom:6px;"),
+                     "Hex diversity table"),
+              downloadButton("dl_hex_csv","Download CSV",class="btn-ghost w-100")
+            )
           )
-        ),
-        card(
-          card_header(bs_icon("file-earmark-arrow-down")," Data downloads"),
-          tags$p(style=paste0("color:",MUT,";font-size:.8rem;"),
-            "All downloads become available once the relevant analysis has been run."),
-          downloadButton("dl_occ",    "Occurrences (.csv)",   class="btn-ghost w-100 mb-2"),
-          br(),
-          downloadButton("dl_hex_csv","Hex diversity (.csv)", class="btn-ghost w-100 mb-2"),
-          br(),
-          downloadButton("dl_geojson","Hex polygons (.geojson)",class="btn-ghost w-100 mb-2"),
-          br(),
-          downloadButton("dl_jsdm",  "jSDM model (.rds)",    class="btn-ghost w-100")
         )
       )
     )
@@ -935,17 +1026,82 @@ server <- function(input, output, session) {
     leaflet() %>% addProviderTiles(providers$CartoDB.DarkMatter) %>% setView(20,20,zoom=2)
   })
   observe({
-    req(rv$occ_clean); df <- rv$occ_clean; spp <- unique(df$species)
-    pal <- colorFactor(viridis(min(length(spp),256),option="turbo"),domain=spp)
+    req(rv$occ_clean)
+    df   <- rv$occ_clean
+    mode <- if (!is.null(input$occ_color_by)) input$occ_color_by else "species"
+
+    # Derive grouping variable
+    df$group <- if (mode == "genus") {
+      # First word of species name = genus
+      sapply(strsplit(df$species, " "), `[`, 1)
+    } else {
+      df$species
+    }
+
+    grps <- unique(df$group)
+    pal  <- colorFactor(viridis(min(length(grps), 256), option="turbo"), domain=grps)
+
     leafletProxy("occ_map") %>% clearMarkers() %>% clearControls() %>%
-      addCircleMarkers(data=df,lng=~decimalLongitude,lat=~decimalLatitude,
-        color=~pal(species),radius=3,weight=1,opacity=.9,fillOpacity=.65,
+      addCircleMarkers(data=df, lng=~decimalLongitude, lat=~decimalLatitude,
+        color=~pal(group), radius=3, weight=1, opacity=.9, fillOpacity=.65,
         popup=~paste0("<b>",species,"</b><br>",
                       round(decimalLongitude,4),", ",round(decimalLatitude,4))) %>%
-      addLegend(pal=pal,values=spp,title="Species",opacity=.85,position="bottomright") %>%
-      fitBounds(min(df$decimalLongitude,na.rm=TRUE),min(df$decimalLatitude,na.rm=TRUE),
-                max(df$decimalLongitude,na.rm=TRUE),max(df$decimalLatitude,na.rm=TRUE))
+      addLegend(
+        pal      = pal,
+        values   = grps,
+        title    = if(mode=="genus") "Genus" else "Species",
+        position = "bottomright",
+        opacity  = .85,
+        labFormat = labelFormat()
+      ) %>%
+      fitBounds(min(df$decimalLongitude,na.rm=TRUE), min(df$decimalLatitude,na.rm=TRUE),
+                max(df$decimalLongitude,na.rm=TRUE), max(df$decimalLatitude,na.rm=TRUE))
   })
+
+  # Download occurrence map as PNG
+  output$dl_occ_map <- downloadHandler(
+    filename = function() paste0("occurrence_map_",
+                                 if(!is.null(input$occ_color_by)) input$occ_color_by else "species",
+                                 ".png"),
+    content = function(file) {
+      req(rv$occ_clean)
+      df   <- rv$occ_clean
+      mode <- if (!is.null(input$occ_color_by)) input$occ_color_by else "species"
+      df$group <- if (mode=="genus") sapply(strsplit(df$species," "),`[`,1) else df$species
+      grps <- sort(unique(df$group))
+
+      world <- ne_countries(scale="medium", returnclass="sf")
+      bbox  <- c(xmin=min(df$decimalLongitude,na.rm=TRUE)-1,
+                 xmax=max(df$decimalLongitude,na.rm=TRUE)+1,
+                 ymin=min(df$decimalLatitude, na.rm=TRUE)-1,
+                 ymax=max(df$decimalLatitude, na.rm=TRUE)+1)
+
+      # Cap legend to 30 items to keep PNG readable
+      show_legend <- length(grps) <= 30
+      n_col <- min(length(grps), 256)
+      cols  <- setNames(viridis(n_col, option="turbo")[
+                  as.integer(cut(seq_along(grps), n_col, labels=FALSE))],
+                grps)
+
+      p <- ggplot() +
+        geom_sf(data=world, fill="#111827", color="#1f2d3d", linewidth=.2) +
+        geom_point(data=df, aes(x=decimalLongitude, y=decimalLatitude,
+                                color=group), size=.8, alpha=.75) +
+        scale_color_manual(values=cols, name=if(mode=="genus") "Genus" else "Species",
+                           guide=if(show_legend) guide_legend(ncol=2, override.aes=list(size=3))
+                                 else "none") +
+        coord_sf(xlim=c(bbox["xmin"],bbox["xmax"]), ylim=c(bbox["ymin"],bbox["ymax"])) +
+        labs(title=paste("Occurrence map —", if(mode=="genus") "by genus" else "by species"),
+             x="Longitude", y="Latitude") +
+        gg_dark() +
+        theme(legend.text=element_text(size=6), legend.title=element_text(size=7),
+              legend.key.size=unit(0.35,"cm"))
+      if (!show_legend)
+        p <- p + labs(caption=paste0(length(grps)," groups — legend hidden (>30 items)"))
+
+      ggsave(file, p, width=12, height=8, dpi=250, bg=D)
+    }
+  )
 
   # ── H3 diversity ──────────────────────────────────────────
   observeEvent(input$btn_build_hex,{
@@ -970,6 +1126,33 @@ server <- function(input, output, session) {
   })
 
   output$hex_status_ui   <- renderUI(badge_status(rv$hex_st))
+
+  output$dl_hex_map <- downloadHandler(
+    filename = function() paste0("hex_map_", input$estimator, ".png"),
+    content  = function(file) {
+      req(rv$polygons)
+      polys <- st_transform(rv$polygons, 3857)
+      bbox  <- st_bbox(polys)
+      est   <- input$estimator
+      pal_fn <- scale_fill_viridis_c(name=LEG[[est]], option=input$palette)
+      world <- ne_countries(scale="medium", returnclass="sf") %>% st_transform(3857)
+      p <- ggplot() +
+        geom_sf(data=world, fill="#111827", color="#1f2d3d", linewidth=.2) +
+        geom_sf(data=polys, aes(fill=.data[[est]]), color="black", linewidth=.05) +
+        pal_fn +
+        coord_sf(xlim=c(bbox["xmin"],bbox["xmax"]), ylim=c(bbox["ymin"],bbox["ymax"])) +
+        labs(title=paste("H3 diversity map —", LEG[[est]]),
+             subtitle=paste0("H3 resolution ", input$hex_res)) +
+        theme_void() +
+        theme(plot.background=element_rect(fill=D,color=NA),
+              plot.title  =element_text(color=TXT,family="Space Grotesk",face="bold",size=12),
+              plot.subtitle=element_text(color=MUT,family="JetBrains Mono",size=9),
+              legend.background=element_rect(fill=CARD,color=NA),
+              legend.text =element_text(color=TXT,family="JetBrains Mono",size=8),
+              legend.title=element_text(color=TXT,family="Space Grotesk",face="bold",size=9))
+      ggsave(file, p, width=12, height=8, dpi=250, bg=D)
+    }
+  )
   output$hex_metric_badge <- renderUI({
     req(rv$polygons)
     tags$span(class="badge badge-cyan", LEG[[input$estimator]])
@@ -1251,6 +1434,23 @@ server <- function(input, output, session) {
   })
 
   # ── jSDM KPIs ────────────────────────────────────────────
+  output$site_size_info_ui <- renderUI({
+    sz <- if (!is.null(input$site_size_m)) input$site_size_m else 0
+    if (sz > 0) {
+      # estimate approx degree size at 40N (middle of typical European study)
+      deg <- round(sz / 111000, 3)
+      div(style=paste0("background:",BRD,";border-radius:6px;padding:5px 9px;",
+                       "font-size:.72rem;color:",TXT,";margin-bottom:4px;"),
+        tags$b(style=paste0("color:",ACC,";"), "Custom grid active: "),
+        paste0(sz, " m ≈ ", deg, "° (",
+               round(sz/1000, 1), " km)")
+      )
+    } else {
+      div(style=paste0("font-size:.72rem;color:",MUT,";margin-bottom:4px;"),
+        "Native resolution: ~9 km (5′ arc-min)")
+    }
+  })
+
   output$jkpi_sites <- renderUI({
     n <- if (!is.null(rv$jsdm_data)) nrow(rv$jsdm_data$pa) else
          if (!is.null(rv$env_rast_sel)) terra::ncell(rv$env_rast_sel[[1]]) else "—"
@@ -1285,9 +1485,16 @@ server <- function(input, output, session) {
         env_use <- rv$env_rast_all[[sel]]
         logj(paste0("Using ",nlyr(env_use)," predictors: ",paste(sel,collapse=", ")))
         incProgress(0.1,detail="Building PA matrix\u2026")
-        jd <- prepare_jsdm(rv$occ_clean, env_use)
+        site_sz <- if (!is.null(input$site_size_m) && input$site_size_m > 0)
+                      input$site_size_m else NULL
+        if (!is.null(site_sz))
+          logj(paste0("Custom site size: ", site_sz, " m"), col=AMB)
+        else
+          logj("Using native env raster resolution as site grid.", col=MUT)
+        jd <- prepare_jsdm(rv$occ_clean, env_use, site_size_m=site_sz)
         rv$jsdm_data <- jd
         logj(paste0("PA matrix: ",nrow(jd$pa)," sites x ",ncol(jd$pa)," species."))
+        logj(paste0("Site grid: ", jd$site_desc))
 
         # Populate species dropdowns BEFORE running model
         spp_names <- jd$species
@@ -1355,7 +1562,7 @@ server <- function(input, output, session) {
     req(rv$jsdm_mod)
     old <- par(bg=CARD,col.axis=MUT,col.lab=MUT,col.main=TXT,fg=BRD)
     on.exit(par(old))
-    tryCatch(jSDM::plot_residual_cor(rv$jsdm_mod,tl.cex=0.65),
+    tryCatch(jSDM::plot_residual_cor(rv$jsdm_mod,tl.cex=1),
              error=function(e){plot.new();text(0.5,0.5,paste("Error:",e$message),col=TXT)})
   },bg=CARD)
 
@@ -1522,7 +1729,7 @@ Set 'Latent vars' >= 2 before running jSDM.",
                    linewidth=0.75, alpha=0.85) +
       # Species labels slightly beyond arrow tip
       geom_text(aes(x=L1*1.18, y=L2*1.18, label=species, color=dist),
-                size=2.7, fontface="italic", hjust=0.5, lineheight=.9) +
+                size=5, fontface="italic", hjust=0.5, lineheight=.9) +
       # Origin dot
       annotate("point", x=0, y=0, color=TXT, size=2) +
       scale_color_viridis_c(option="plasma", guide="none") +
@@ -1560,82 +1767,167 @@ Set 'Latent vars' >= 2 before running jSDM.",
   }, bg="transparent")
 
   # ══════════════════════════════════════════════════════════
-  # EXPORT
+  # DATA DOWNLOADS
   # ══════════════════════════════════════════════════════════
 
-  output$hex_table <- renderDT({
-    req(rv$polygons)
-    df <- as.data.frame(rv$polygons) %>% select(-geometry) %>%
-      mutate(across(where(is.numeric),~round(.x,4)))
-    datatable(df,rownames=FALSE,filter="top",extensions="Buttons",
-              options=list(dom="Bfrtip",buttons=c("csv","excel"),
-                           pageLength=15,scrollX=TRUE))
-  })
-
-  # Build the ggplot map (shared between preview and download)
-  make_export_map <- reactive({
-    req(rv$polygons)
-    polys <- st_transform(rv$polygons,3857)
-    bbox  <- st_bbox(polys)
-    p <- ggplot()
-    if(input$exp_bg=="borders"){
-      world <- ne_countries(scale="medium",returnclass="sf") %>% st_transform(3857)
-      p <- p+geom_sf(data=world,fill="#111827",color="#1f2d3d",linewidth=.2)
-    }
-    p+geom_sf(data=polys,aes(fill=.data[[input$exp_est]]),color="black",linewidth=.05)+
-      scale_fill_viridis_c(name=LEG[[input$exp_est]],option=input$exp_pal)+
-      coord_sf(xlim=c(bbox["xmin"],bbox["xmax"]),ylim=c(bbox["ymin"],bbox["ymax"]))+
-      theme_void()+
-      theme(plot.background=element_rect(fill=D,color=NA),
-            legend.text =element_text(color=TXT,family="JetBrains Mono"),
-            legend.title=element_text(color=TXT,family="Space Grotesk",face="bold",size=9))
-  })
-
-  # Preview — uses renderPlot, no external packages needed
-  preview_trigger <- reactiveVal(0)
-  observeEvent(input$btn_preview_map, {
-    req(rv$polygons)
-    preview_trigger(preview_trigger() + 1)
-  })
-
-  output$export_preview <- renderUI({
-    req(preview_trigger() > 0)
-    withSpinner(plotOutput("export_preview_plot", height = "260px"), color = ACC, type = 6)
-  })
-
-  output$export_preview_plot <- renderPlot({
-    req(preview_trigger() > 0, rv$polygons)
-    make_export_map()
-  }, bg = D)
-
-  output$dl_png <- downloadHandler(
-    filename=function() paste0("biohex_",input$exp_est,".png"),
-    content=function(file){
-      req(rv$polygons)
-      ggsave(file,make_export_map(),width=input$exp_w,height=input$exp_h,
-             dpi=input$exp_dpi,bg=D)
-    }
-  )
-
   output$dl_occ <- downloadHandler(
-    filename=function() "biohex_occurrences.csv",
-    content=function(file){req(rv$occ_clean);write.csv(rv$occ_clean,file,row.names=FALSE)})
+    filename = function() "biohex_occurrences.csv",
+    content  = function(file) { req(rv$occ_clean); write.csv(rv$occ_clean,file,row.names=FALSE) })
 
   output$dl_hex_csv <- downloadHandler(
-    filename=function() "biohex_diversity.csv",
-    content=function(file){
+    filename = function() "biohex_diversity.csv",
+    content  = function(file) {
       req(rv$polygons)
-      as.data.frame(rv$polygons) %>% select(-geometry) %>% write.csv(file,row.names=FALSE)})
-
-  output$dl_geojson <- downloadHandler(
-    filename=function() "biohex_diversity.geojson",
-    content=function(file){
-      req(rv$polygons)
-      st_write(st_transform(rv$polygons,4326),file,driver="GeoJSON",quiet=TRUE)})
+      as.data.frame(rv$polygons) %>% select(-geometry) %>% write.csv(file,row.names=FALSE) })
 
   output$dl_jsdm <- downloadHandler(
-    filename=function() "biohex_jsdm_model.rds",
-    content=function(file){req(rv$jsdm_mod);saveRDS(rv$jsdm_mod,file)})
+    filename = function() "biohex_jsdm_model.rds",
+    content  = function(file) { req(rv$jsdm_mod); saveRDS(rv$jsdm_mod, file) })
+
+  # ── Per-plot download handlers ─────────────────────────────
+  save_gg <- function(file, p, w=10, h=7, dpi=250) {
+    if (is.null(p)) return()
+    ggplot2::ggsave(file, p, width=w, height=h, dpi=dpi, bg=CARD)
+  }
+
+  output$dl_plot_trace <- downloadHandler(
+    filename=function() "jsdm_trace.png",
+    content=function(file) {
+      req(rv$jsdm_mod, input$conv_sp, input$conv_par)
+      mod <- rv$jsdm_mod
+      idx <- which(names(mod$mcmc.sp)==input$conv_sp); if(!length(idx)) idx <- 1
+      ch  <- as.numeric(mod$mcmc.sp[[idx]][,input$conv_par])
+      df  <- data.frame(iter=seq_along(ch), value=ch)
+      save_gg(file,
+        ggplot(df,aes(iter,value))+geom_line(color=ACC,linewidth=.35)+
+          labs(title=paste("Trace —",input$conv_par,"—",input$conv_sp),
+               x="Iteration",y="Value")+gg_dark(), h=5)
+    })
+
+  output$dl_plot_density <- downloadHandler(
+    filename=function() "jsdm_posterior_density.png",
+    content=function(file) {
+      req(rv$jsdm_mod, input$conv_sp, input$conv_par)
+      mod <- rv$jsdm_mod
+      idx <- which(names(mod$mcmc.sp)==input$conv_sp); if(!length(idx)) idx <- 1
+      ch  <- as.numeric(mod$mcmc.sp[[idx]][,input$conv_par])
+      df  <- data.frame(value=ch)
+      save_gg(file,
+        ggplot(df,aes(value))+geom_density(fill=VIO,color=NA,alpha=.75)+
+          geom_vline(xintercept=mean(ch),color=AMB,linetype="dashed",linewidth=.8)+
+          labs(title=paste("Posterior density —",input$conv_par),x="Value",y="Density")+
+          gg_dark(), h=5)
+    })
+
+  output$dl_plot_rescor <- downloadHandler(
+    filename=function() "jsdm_residual_correlations.png",
+    content=function(file) {
+      req(rv$jsdm_mod)
+      n_sp <- length(rv$jsdm_data$species)
+      sz   <- max(8, min(24, n_sp * 0.35))
+      png(file, width=sz*100, height=sz*100, res=150, bg=CARD)
+      old <- par(bg=CARD, col.axis=MUT, col.lab=MUT, col.main=TXT, fg=BRD)
+      tryCatch(jSDM::plot_residual_cor(rv$jsdm_mod, tl.cex=max(0.4, 0.9-n_sp*0.01)),
+               error=function(e) { plot.new(); text(0.5,0.5,"Error",col=TXT) })
+      par(old); dev.off()
+    })
+
+  output$dl_plot_resp <- downloadHandler(
+    filename=function() paste0("jsdm_response_",
+                                gsub(" ","_",input$resp_sp %||% "species"),".png"),
+    content=function(file) {
+      req(rv$jsdm_mod, rv$jsdm_data, input$resp_sp)
+      mod <- rv$jsdm_mod; sp <- input$resp_sp
+      idx <- which(names(mod$mcmc.sp)==sp); if(!length(idx)) idx <- 1
+      n_e <- length(rv$jsdm_data$env_vars)
+      bc  <- seq_len(n_e+1)
+      betas <- colMeans(as.matrix(mod$mcmc.sp[[idx]])[,bc,drop=FALSE])
+      ci    <- apply(as.matrix(mod$mcmc.sp[[idx]])[,bc,drop=FALSE],2,
+                     function(x) quantile(x,c(.025,.975)))
+      df <- tibble::tibble(param=names(betas),mean=as.numeric(betas),
+                           lo=ci[1,],hi=ci[2,],dir=ifelse(mean>0,"pos","neg"))
+      save_gg(file,
+        ggplot(df,aes(x=reorder(param,mean),y=mean,fill=dir))+
+          geom_col(alpha=.85)+
+          scale_fill_manual(values=c(pos=GRN,neg=RED),guide="none")+
+          geom_errorbar(aes(ymin=lo,ymax=hi),width=.25,color=TXT,linewidth=.5)+
+          coord_flip()+
+          labs(title=paste("Beta coefficients —",sp),
+               subtitle="Posterior mean ± 95% CI",x=NULL,y="Posterior mean")+
+          gg_dark(),
+        h=max(5, n_e*0.32))
+    })
+
+  output$dl_plot_theta <- downloadHandler(
+    filename=function() "jsdm_theta.png",
+    content=function(file) {
+      req(rv$jsdm_mod)
+      df <- data.frame(theta=as.vector(rv$jsdm_mod$theta_latent))
+      save_gg(file,
+        ggplot(df,aes(theta))+geom_histogram(bins=60,fill=ACC,color=D,alpha=.85)+
+          labs(title="Predicted occupancy θ",x="θ",y="Count")+gg_dark(), h=5)
+    })
+
+  output$dl_plot_latent <- downloadHandler(
+    filename=function() "jsdm_latent_spatial.png",
+    content=function(file) {
+      req(rv$jsdm_mod, rv$jsdm_data)
+      mod <- rv$jsdm_mod; coords <- rv$jsdm_data$coords
+      W1  <- colMeans(as.matrix(mod$mcmc.latent[["lv_1"]]))
+      lv2 <- tryCatch(as.matrix(mod$mcmc.latent[["lv_2"]]),error=function(e) NULL)
+      df  <- data.frame(lon=coords$x, lat=coords$y, W1=W1)
+      if (!is.null(lv2)) df$W2 <- colMeans(lv2)
+      p <- if (!is.null(lv2)) {
+        dl <- tidyr::pivot_longer(df,c("W1","W2"),names_to="LV",values_to="score")
+        ggplot(dl,aes(lon,lat,fill=score))+geom_tile()+facet_wrap(~LV)+
+          scale_fill_viridis_c(option="magma",name="Score")+
+          coord_equal()+labs(x="Longitude",y="Latitude")+gg_dark()
+      } else {
+        ggplot(df,aes(lon,lat,fill=W1))+geom_tile()+
+          scale_fill_viridis_c(option="magma",name="W₁")+
+          coord_equal()+labs(x="Longitude",y="Latitude")+gg_dark()
+      }
+      save_gg(file, p, w=12, h=6)
+    })
+
+  output$dl_plot_dev <- downloadHandler(
+    filename=function() "jsdm_deviance.png",
+    content=function(file) {
+      req(rv$jsdm_mod)
+      dev <- as.numeric(as.matrix(rv$jsdm_mod$mcmc.Deviance)[,1])
+      df  <- data.frame(iter=seq_along(dev), deviance=dev)
+      save_gg(file,
+        ggplot(df,aes(iter,deviance))+geom_line(color=AMB,linewidth=.4)+
+          geom_smooth(method="loess",formula=y~x,color=ACC,se=FALSE,linewidth=.8)+
+          labs(title="Deviance trace",x="MCMC sample",y="Deviance")+gg_dark(), h=5)
+    })
+
+  output$dl_plot_biplot <- downloadHandler(
+    filename=function() "jsdm_species_biplot.png",
+    content=function(file) {
+      req(rv$jsdm_mod, rv$jsdm_data)
+      mod <- rv$jsdm_mod; spp <- rv$jsdm_data$species
+      nb  <- length(rv$jsdm_data$env_vars)+1
+      L1  <- sapply(seq_along(spp),function(j) mean(as.matrix(mod$mcmc.sp[[j]])[,nb+1]))
+      L2  <- sapply(seq_along(spp),function(j) mean(as.matrix(mod$mcmc.sp[[j]])[,nb+2]))
+      df  <- data.frame(species=spp,L1=L1,L2=L2,dist=sqrt(L1^2+L2^2))
+      lim <- max(abs(c(df$L1,df$L2)),na.rm=TRUE)*1.3
+      save_gg(file,
+        ggplot(df)+
+          geom_hline(yintercept=0,color=BRD,linewidth=.5,linetype="dashed")+
+          geom_vline(xintercept=0,color=BRD,linewidth=.5,linetype="dashed")+
+          geom_segment(aes(x=0,y=0,xend=L1,yend=L2,color=dist),
+                       arrow=arrow(length=unit(0.2,"cm"),type="closed"),
+                       linewidth=0.75,alpha=0.85)+
+          geom_text(aes(x=L1*1.18,y=L2*1.18,label=species,color=dist),
+                    size=2.8,fontface="italic",hjust=0.5)+
+          annotate("point",x=0,y=0,color=TXT,size=2)+
+          scale_color_viridis_c(option="plasma",guide="none")+
+          coord_equal(xlim=c(-lim,lim),ylim=c(-lim,lim))+
+          labs(title="Species biplot — latent factor loadings",
+               x="λ₁",y="λ₂")+gg_dark(),
+        w=10, h=10)
+    })
 }
 
 shinyApp(ui, server)
